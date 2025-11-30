@@ -1,14 +1,18 @@
 """
 Servidor Web Flask para Geração de Vídeos com Lip-Sync
 Interface web moderna com configuração de API keys integrada
+Sistema de autenticação integrado
 """
 import os
 import json
+import secrets
 from pathlib import Path
+from functools import wraps
 from typing import List, Dict, Any, Optional
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory, send_file, session, redirect, url_for
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 import logging
 
 from config import Config
@@ -22,25 +26,105 @@ logger = get_logger(__name__)
 
 # Inicialização do Flask
 app = Flask(__name__, static_folder='static', static_url_path='')
-CORS(app)
+CORS(app, supports_credentials=True)
 
 # Configurações
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', secrets.token_hex(32))
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
 UPLOAD_FOLDER = Path('./temp/uploads')
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+
+# Credenciais de autenticação (do .env)
+AUTH_EMAIL = os.getenv('AUTH_EMAIL', 'admin')
+AUTH_PASSWORD = os.getenv('AUTH_PASSWORD', 'Senha#1234')
+
+# ============================================================================
+# AUTENTICAÇÃO
+# ============================================================================
+
+def login_required(f):
+    """Decorador para proteger rotas que requerem autenticação"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            # Se for requisição AJAX/API, retorna 401
+            if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': False, 'error': 'Não autenticado', 'redirect': '/login'}), 401
+            # Se for requisição normal, redireciona para login
+            return redirect('/login')
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/login')
+def login_page():
+    """Página de login"""
+    if session.get('logged_in'):
+        return redirect('/')
+    return send_from_directory('static', 'login.html')
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """API de login"""
+    try:
+        data = request.json
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+
+        # Verifica credenciais
+        if email == AUTH_EMAIL and password == AUTH_PASSWORD:
+            session['logged_in'] = True
+            session['user'] = email
+            session.permanent = True
+            logger.info(f"Login bem-sucedido: {email}")
+            return jsonify({'success': True, 'message': 'Login realizado com sucesso'})
+        else:
+            logger.warning(f"Tentativa de login falhou: {email}")
+            return jsonify({'success': False, 'error': 'Email ou senha incorretos'}), 401
+
+    except Exception as e:
+        logger.error(f"Erro no login: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    """API de logout"""
+    session.clear()
+    return jsonify({'success': True, 'message': 'Logout realizado com sucesso'})
+
+@app.route('/api/auth/status', methods=['GET'])
+def auth_status():
+    """Verifica status de autenticação"""
+    return jsonify({
+        'success': True,
+        'logged_in': session.get('logged_in', False),
+        'user': session.get('user', None)
+    })
 
 # ============================================================================
 # ROTAS ESTÁTICAS
 # ============================================================================
 
 @app.route('/')
+@login_required
 def index():
-    """Serve a página principal"""
+    """Serve a página principal (requer login)"""
     return send_from_directory('static', 'index.html')
 
 @app.route('/<path:path>')
 def static_files(path):
     """Serve arquivos estáticos"""
+    # Permite acesso ao login.html sem autenticação
+    if path == 'login.html':
+        return send_from_directory('static', path)
+    # Permite acesso a arquivos CSS/JS/imagens sem autenticação (para o login funcionar)
+    if path.endswith(('.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.woff', '.woff2', '.ttf')):
+        return send_from_directory('static', path)
+    # Outras páginas requerem login
+    if not session.get('logged_in'):
+        return redirect('/login')
     return send_from_directory('static', path)
 
 # ============================================================================
@@ -48,6 +132,7 @@ def static_files(path):
 # ============================================================================
 
 @app.route('/api/config/keys', methods=['GET'])
+@login_required
 def get_api_keys_status():
     """Retorna status de quais API keys estão configuradas (com valores mascarados)"""
     try:
@@ -79,6 +164,7 @@ def get_api_keys_status():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/config/keys', methods=['POST'])
+@login_required
 def save_api_keys():
     """Salva API keys no arquivo .env"""
     try:
@@ -144,6 +230,7 @@ def save_api_keys():
 # ============================================================================
 
 @app.route('/api/voices/<provider>', methods=['GET'])
+@login_required
 def get_voices(provider: str):
     """Retorna lista de vozes disponíveis do provedor"""
     try:
@@ -270,6 +357,7 @@ def generate_preview():
 # ============================================================================
 
 @app.route('/api/upload/images', methods=['POST'])
+@login_required
 def upload_images():
     """Faz upload de imagens"""
     try:
@@ -310,6 +398,7 @@ def upload_images():
 # ============================================================================
 
 @app.route('/api/generate/single', methods=['POST'])
+@login_required
 def generate_single_video():
     """Gera um vídeo único"""
     try:
@@ -383,6 +472,7 @@ def generate_single_video():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/generate/batch', methods=['POST'])
+@login_required
 def generate_batch_videos():
     """Gera múltiplos vídeos em lote"""
     try:
