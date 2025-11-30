@@ -160,57 +160,167 @@ class Database:
     # ========================================================================
     # AVATARS
     # ========================================================================
-    
-    def create_avatar(self, name: str, image_path: str, thumbnail_path: str = None) -> Dict:
-        """Create a new avatar entry"""
+
+    def create_avatar(self, name: str, image_path: str = None, thumbnail_path: str = None, images: List[Dict] = None) -> Dict:
+        """Create a new avatar entry with multiple images support"""
         avatars = self._load_json(self.avatars_file)
-        
+
         avatar = {
             "id": f"avatar_{uuid.uuid4().hex[:8]}",
             "name": name,
-            "image_path": image_path,
-            "thumbnail_path": thumbnail_path or image_path,
+            "images": images or [],
+            "thumbnail_path": thumbnail_path or (image_path if image_path else None),
             "created_at": datetime.now().isoformat()
         }
-        
+
+        # Se foi passado image_path (compatibilidade), adiciona como primeira imagem
+        if image_path:
+            avatar["images"].append({
+                "id": f"img_{uuid.uuid4().hex[:8]}",
+                "path": image_path,
+                "thumbnail": thumbnail_path or image_path
+            })
+
         avatars.append(avatar)
         self._save_json(self.avatars_file, avatars)
-        
+
         return avatar
-    
+
+    def add_image_to_avatar(self, avatar_id: str, image_path: str, thumbnail_path: str = None) -> Optional[Dict]:
+        """Add an image to an existing avatar"""
+        avatars = self._load_json(self.avatars_file)
+
+        for i, avatar in enumerate(avatars):
+            if avatar['id'] == avatar_id:
+                if 'images' not in avatar:
+                    avatar['images'] = []
+
+                image_entry = {
+                    "id": f"img_{uuid.uuid4().hex[:8]}",
+                    "path": image_path,
+                    "thumbnail": thumbnail_path or image_path
+                }
+
+                avatar['images'].append(image_entry)
+
+                # Se for a primeira imagem, define como thumbnail principal
+                if len(avatar['images']) == 1:
+                    avatar['thumbnail_path'] = thumbnail_path or image_path
+
+                avatars[i] = avatar
+                self._save_json(self.avatars_file, avatars)
+                return avatar
+
+        return None
+
+    def remove_image_from_avatar(self, avatar_id: str, image_id: str) -> Optional[Dict]:
+        """Remove an image from an avatar"""
+        avatars = self._load_json(self.avatars_file)
+
+        for i, avatar in enumerate(avatars):
+            if avatar['id'] == avatar_id:
+                if 'images' in avatar:
+                    # Remove a imagem e seus arquivos
+                    for img in avatar['images']:
+                        if img['id'] == image_id:
+                            try:
+                                Path(img['path']).unlink(missing_ok=True)
+                                if img.get('thumbnail'):
+                                    Path(img['thumbnail']).unlink(missing_ok=True)
+                            except Exception as e:
+                                print(f"Error deleting image files: {e}")
+
+                    avatar['images'] = [img for img in avatar['images'] if img['id'] != image_id]
+
+                    # Atualiza thumbnail principal se necessário
+                    if avatar['images']:
+                        avatar['thumbnail_path'] = avatar['images'][0].get('thumbnail') or avatar['images'][0].get('path')
+                    else:
+                        avatar['thumbnail_path'] = None
+
+                    avatars[i] = avatar
+                    self._save_json(self.avatars_file, avatars)
+                return avatar
+
+        return None
+
+    def get_avatar_images(self, avatar_id: str) -> List[Dict]:
+        """Get all images for an avatar"""
+        avatar = self.get_avatar(avatar_id)
+        if avatar:
+            return avatar.get('images', [])
+        return []
+
     def get_avatars(self) -> List[Dict]:
         """Get all avatars"""
         avatars = self._load_json(self.avatars_file)
+
+        # Migração: converte avatars antigos para novo formato
+        updated = False
+        for avatar in avatars:
+            if 'images' not in avatar:
+                avatar['images'] = []
+                if avatar.get('image_path'):
+                    avatar['images'].append({
+                        "id": f"img_{uuid.uuid4().hex[:8]}",
+                        "path": avatar['image_path'],
+                        "thumbnail": avatar.get('thumbnail_path', avatar['image_path'])
+                    })
+                updated = True
+
+        if updated:
+            self._save_json(self.avatars_file, avatars)
+
         avatars.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         return avatars
-    
+
     def get_avatar(self, avatar_id: str) -> Optional[Dict]:
         """Get a specific avatar"""
         avatars = self._load_json(self.avatars_file)
-        
+
         for avatar in avatars:
             if avatar['id'] == avatar_id:
+                # Migração: converte avatar antigo para novo formato
+                if 'images' not in avatar:
+                    avatar['images'] = []
+                    if avatar.get('image_path'):
+                        avatar['images'].append({
+                            "id": f"img_{uuid.uuid4().hex[:8]}",
+                            "path": avatar['image_path'],
+                            "thumbnail": avatar.get('thumbnail_path', avatar['image_path'])
+                        })
                 return avatar
-        
+
         return None
-    
+
     def delete_avatar(self, avatar_id: str) -> bool:
-        """Delete an avatar"""
+        """Delete an avatar and all its images"""
         avatars = self._load_json(self.avatars_file)
-        
+
         # Find and delete avatar files
         for avatar in avatars:
             if avatar['id'] == avatar_id:
-                try:
-                    Path(avatar['image_path']).unlink(missing_ok=True)
-                    if avatar.get('thumbnail_path'):
-                        Path(avatar['thumbnail_path']).unlink(missing_ok=True)
-                except Exception as e:
-                    print(f"Error deleting avatar files: {e}")
-        
+                # Delete all images
+                for img in avatar.get('images', []):
+                    try:
+                        Path(img['path']).unlink(missing_ok=True)
+                        if img.get('thumbnail'):
+                            Path(img['thumbnail']).unlink(missing_ok=True)
+                    except Exception as e:
+                        print(f"Error deleting image files: {e}")
+
+                # Delete old format image if exists
+                if avatar.get('image_path'):
+                    try:
+                        Path(avatar['image_path']).unlink(missing_ok=True)
+                        if avatar.get('thumbnail_path'):
+                            Path(avatar['thumbnail_path']).unlink(missing_ok=True)
+                    except Exception as e:
+                        print(f"Error deleting avatar files: {e}")
+
         avatars = [a for a in avatars if a['id'] != avatar_id]
         self._save_json(self.avatars_file, avatars)
-        
+
         return True
     
     # ========================================================================

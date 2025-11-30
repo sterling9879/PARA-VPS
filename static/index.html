@@ -291,10 +291,33 @@ Roteiro 3: E aqui está o terceiro roteiro."></textarea>
                                                 <rect x="2" y="14" width="8" height="8" rx="1"></rect>
                                                 <rect x="14" y="14" width="8" height="8" rx="1"></rect>
                                             </svg>
-                                            <span class="mode-label">Imagem por Batch</span>
-                                            <span class="mode-desc">Imagem diferente para cada batch</span>
+                                            <span class="mode-label">Manual por Batch</span>
+                                            <span class="mode-desc">Escolher imagem para cada batch</span>
+                                        </button>
+                                        <button type="button" class="batch-mode-btn" data-mode="automatic" onclick="setBatchImageMode('automatic')">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                                                <path d="M2 17l10 5 10-5"></path>
+                                                <path d="M2 12l10 5 10-5"></path>
+                                            </svg>
+                                            <span class="mode-label">Automatico (IA)</span>
+                                            <span class="mode-desc">Gemini escolhe a melhor imagem</span>
                                         </button>
                                     </div>
+                                </div>
+
+                                <!-- Avatar Selector for Individual/Automatic Mode -->
+                                <div id="batchAvatarSection" class="form-group" style="display: none;">
+                                    <label>Selecionar Avatar</label>
+                                    <div class="batch-avatar-selector">
+                                        <select id="batchAvatarSelect" class="select" onchange="onBatchAvatarChange()">
+                                            <option value="">Selecione um avatar...</option>
+                                        </select>
+                                        <div id="batchAvatarImages" class="batch-avatar-images" style="display: none;">
+                                            <!-- Imagens do avatar selecionado -->
+                                        </div>
+                                    </div>
+                                    <p class="form-hint" id="batchAvatarHint">As imagens do avatar selecionado serao usadas para os batches</p>
                                 </div>
 
                                 <!-- FIXED IMAGE SELECTOR (default) -->
@@ -441,16 +464,7 @@ Roteiro 3: E aqui está o terceiro roteiro."></textarea>
                                             <polyline points="17 8 12 3 7 8"></polyline>
                                             <line x1="12" y1="3" x2="12" y2="15"></line>
                                         </svg>
-                                        Upload Avatar
-                                    </button>
-                                    <button class="btn btn-secondary" id="btnUploadMultipleAvatars">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                            stroke-width="2">
-                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                            <polyline points="17 8 12 3 7 8"></polyline>
-                                            <line x1="12" y1="3" x2="12" y2="15"></line>
-                                        </svg>
-                                        Upload Múltiplos
+                                        Novo Avatar
                                     </button>
                                 </div>
                             </div>
@@ -486,6 +500,8 @@ Roteiro 3: E aqui está o terceiro roteiro."></textarea>
                                 </div>
                             </div>
 
+                            <p class="section-hint">Clique em um avatar para expandir e gerenciar suas imagens</p>
+
                             <div id="avatarsGallery" class="avatars-gallery-grid">
                                 <div class="empty-state-large">
                                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -497,6 +513,35 @@ Roteiro 3: E aqui está o terceiro roteiro."></textarea>
                                     <p class="hint">Faça upload de imagens template para usar nos vídeos</p>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal para adicionar imagens ao avatar -->
+                <div class="modal" id="avatarImagesModal" style="display: none;">
+                    <div class="modal-overlay" onclick="closeAvatarImagesModal()"></div>
+                    <div class="modal-content modal-large">
+                        <div class="modal-header">
+                            <h2 id="avatarImagesModalTitle">Imagens do Avatar</h2>
+                            <button class="modal-close" onclick="closeAvatarImagesModal()">x</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="avatar-images-grid" id="avatarImagesGrid">
+                                <!-- Imagens serão carregadas aqui -->
+                            </div>
+                            <div class="avatar-add-image-section">
+                                <div class="upload-area" id="avatarAddImageArea" onclick="document.getElementById('avatarAddImageInput').click()">
+                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                    <p class="upload-text">Adicionar mais imagens</p>
+                                </div>
+                                <input type="file" id="avatarAddImageInput" accept="image/*" multiple hidden onchange="addImagesToAvatar(event)">
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeAvatarImagesModal()">Fechar</button>
                         </div>
                     </div>
                 </div>

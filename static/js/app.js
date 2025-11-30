@@ -18,10 +18,13 @@ const state = {
     selectedAvatarId: null,
     selectedAvatarPath: null,
     pendingAvatarFile: null,
+    currentAvatarForImages: null, // Avatar sendo editado no modal de imagens
 
     // Batch image mode
-    batchImageMode: 'fixed', // 'fixed' or 'individual'
-    batchImages: {}, // {scriptId_batchNumber: avatarId}
+    batchImageMode: 'fixed', // 'fixed', 'individual', or 'automatic'
+    batchImages: {}, // {scriptId_batchNumber: image_path}
+    batchAvatarId: null, // Avatar selecionado para modo individual/automatic
+    batchAvatarImages: [], // Imagens do avatar selecionado
 
     // Preview state
     previewData: null,
@@ -300,17 +303,101 @@ function setBatchImageMode(mode) {
         btn.classList.toggle('active', btn.dataset.mode === mode);
     });
 
-    // Show/hide fixed image section
+    // Show/hide sections based on mode
     const fixedSection = document.getElementById('fixedImageSection');
+    const batchAvatarSection = document.getElementById('batchAvatarSection');
+    const batchAvatarHint = document.getElementById('batchAvatarHint');
+
     if (mode === 'fixed') {
         fixedSection.style.display = 'block';
-    } else {
+        if (batchAvatarSection) batchAvatarSection.style.display = 'none';
+    } else if (mode === 'individual') {
         fixedSection.style.display = 'none';
+        if (batchAvatarSection) {
+            batchAvatarSection.style.display = 'block';
+            if (batchAvatarHint) batchAvatarHint.textContent = 'Selecione um avatar. Voce escolhera a imagem para cada batch no preview.';
+        }
+        loadBatchAvatarSelect();
+    } else if (mode === 'automatic') {
+        fixedSection.style.display = 'none';
+        if (batchAvatarSection) {
+            batchAvatarSection.style.display = 'block';
+            if (batchAvatarHint) batchAvatarHint.textContent = 'O Gemini vai analisar cada batch e escolher a melhor imagem automaticamente.';
+        }
+        loadBatchAvatarSelect();
     }
 
     // Re-render preview if exists
     if (state.previewData) {
         renderPreview(state.previewData);
+    }
+}
+
+// Load avatars into the batch avatar select dropdown
+function loadBatchAvatarSelect() {
+    const select = document.getElementById('batchAvatarSelect');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">Selecione um avatar...</option>';
+
+    state.avatars.forEach(avatar => {
+        const imageCount = (avatar.images || []).length;
+        const option = document.createElement('option');
+        option.value = avatar.id;
+        option.textContent = `${avatar.name} (${imageCount} imagens)`;
+        select.appendChild(option);
+    });
+
+    // If already selected, keep selection
+    if (state.batchAvatarId) {
+        select.value = state.batchAvatarId;
+    }
+}
+
+// Handle avatar change in batch mode
+async function onBatchAvatarChange() {
+    const select = document.getElementById('batchAvatarSelect');
+    const avatarId = select.value;
+
+    state.batchAvatarId = avatarId;
+    state.batchAvatarImages = [];
+    state.batchImages = {}; // Reset batch image selections
+
+    const imagesContainer = document.getElementById('batchAvatarImages');
+
+    if (!avatarId) {
+        imagesContainer.style.display = 'none';
+        return;
+    }
+
+    // Load avatar images
+    try {
+        const response = await fetch(`/api/avatars/${avatarId}/images`);
+        const data = await response.json();
+
+        if (data.success && data.images.length > 0) {
+            state.batchAvatarImages = data.images;
+            imagesContainer.style.display = 'block';
+
+            imagesContainer.innerHTML = data.images.map((img, idx) => `
+                <div class="batch-avatar-image-item" data-path="${img.path}" data-id="${img.id}">
+                    <img src="/api/avatars/${avatarId}/images/${img.id}/file" alt="Imagem ${idx + 1}">
+                    <span class="image-number">${idx + 1}</span>
+                </div>
+            `).join('');
+        } else {
+            imagesContainer.innerHTML = '<p class="form-hint">Este avatar nao possui imagens.</p>';
+            imagesContainer.style.display = 'block';
+        }
+
+        // Re-render preview if exists
+        if (state.previewData) {
+            renderPreview(state.previewData);
+        }
+    } catch (error) {
+        console.error('Erro ao carregar imagens do avatar:', error);
+        imagesContainer.innerHTML = '<p class="form-hint" style="color: var(--error);">Erro ao carregar imagens</p>';
+        imagesContainer.style.display = 'block';
     }
 }
 
@@ -429,25 +516,156 @@ function renderAvatarsGallery() {
                     <circle cx="12" cy="7" r="4"></circle>
                 </svg>
                 <p>Nenhum avatar salvo ainda</p>
-                <p class="hint">Faça upload de imagens template para usar nos vídeos</p>
+                <p class="hint">Faca upload de imagens template para usar nos videos</p>
             </div>
         `;
         return;
     }
 
-    gallery.innerHTML = state.avatars.map(avatar => `
-        <div class="avatar-card" data-id="${avatar.id}">
-            <img class="avatar-card-image" src="/api/avatars/${avatar.id}/image" alt="${avatar.name}">
-            <div class="avatar-card-info">
-                <div class="avatar-card-name">${avatar.name}</div>
-                <div class="avatar-card-date">${formatDate(avatar.created_at)}</div>
-                <div class="avatar-card-actions">
-                    <button class="avatar-card-btn" onclick="selectAvatarForUse('${avatar.id}')">Usar</button>
-                    <button class="avatar-card-btn danger" onclick="deleteAvatar('${avatar.id}')">Excluir</button>
+    gallery.innerHTML = state.avatars.map(avatar => {
+        const imageCount = (avatar.images || []).length;
+        return `
+            <div class="avatar-card" data-id="${avatar.id}" onclick="openAvatarImagesModal('${avatar.id}')">
+                <img class="avatar-card-image" src="/api/avatars/${avatar.id}/image" alt="${avatar.name}">
+                <div class="avatar-card-badge">${imageCount} foto${imageCount !== 1 ? 's' : ''}</div>
+                <div class="avatar-card-info">
+                    <div class="avatar-card-name">${avatar.name}</div>
+                    <div class="avatar-card-date">${formatDate(avatar.created_at)}</div>
+                    <div class="avatar-card-actions" onclick="event.stopPropagation()">
+                        <button class="avatar-card-btn" onclick="selectAvatarForUse('${avatar.id}')">Usar</button>
+                        <button class="avatar-card-btn danger" onclick="deleteAvatar('${avatar.id}')">Excluir</button>
+                    </div>
                 </div>
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
+}
+
+// ============================================================================
+// AVATAR IMAGES MODAL
+// ============================================================================
+
+async function openAvatarImagesModal(avatarId) {
+    const avatar = state.avatars.find(a => a.id === avatarId);
+    if (!avatar) return;
+
+    state.currentAvatarForImages = avatarId;
+
+    const modal = document.getElementById('avatarImagesModal');
+    const title = document.getElementById('avatarImagesModalTitle');
+    const grid = document.getElementById('avatarImagesGrid');
+
+    title.textContent = `Imagens de ${avatar.name}`;
+
+    // Load images
+    try {
+        const response = await fetch(`/api/avatars/${avatarId}/images`);
+        const data = await response.json();
+
+        if (data.success && data.images.length > 0) {
+            grid.innerHTML = data.images.map((img, idx) => `
+                <div class="avatar-image-card" data-id="${img.id}">
+                    <img src="/api/avatars/${avatarId}/images/${img.id}/file" alt="Imagem ${idx + 1}">
+                    <button class="avatar-image-delete" onclick="deleteAvatarImage('${avatarId}', '${img.id}')" title="Remover imagem">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        } else {
+            grid.innerHTML = '<p class="empty-state">Nenhuma imagem ainda. Adicione imagens abaixo.</p>';
+        }
+    } catch (error) {
+        console.error('Erro ao carregar imagens:', error);
+        grid.innerHTML = '<p class="empty-state" style="color: var(--error);">Erro ao carregar imagens</p>';
+    }
+
+    modal.style.display = 'flex';
+}
+
+function closeAvatarImagesModal() {
+    const modal = document.getElementById('avatarImagesModal');
+    modal.style.display = 'none';
+    state.currentAvatarForImages = null;
+
+    // Reload avatars to update counts
+    loadAvatars();
+}
+
+async function addImagesToAvatar(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const avatarId = state.currentAvatarForImages;
+    if (!avatarId) return;
+
+    const grid = document.getElementById('avatarImagesGrid');
+    const originalContent = grid.innerHTML;
+
+    // Show loading
+    grid.innerHTML = '<div class="loading-spinner"></div><p>Enviando imagens...</p>';
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const file of files) {
+        const formData = new FormData();
+        formData.append('image', file);
+
+        try {
+            const response = await fetch(`/api/avatars/${avatarId}/images`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                successCount++;
+            } else {
+                errorCount++;
+                console.error('Erro ao adicionar imagem:', data.error);
+            }
+        } catch (error) {
+            errorCount++;
+            console.error('Erro ao adicionar imagem:', error);
+        }
+    }
+
+    // Reset file input
+    event.target.value = '';
+
+    // Reload modal with new images
+    await openAvatarImagesModal(avatarId);
+
+    // Show result message
+    if (errorCount > 0) {
+        alert(`${successCount} imagem(ns) adicionada(s), ${errorCount} erro(s)`);
+    }
+}
+
+async function deleteAvatarImage(avatarId, imageId) {
+    if (!confirm('Tem certeza que deseja remover esta imagem?')) return;
+
+    try {
+        const response = await fetch(`/api/avatars/${avatarId}/images/${imageId}`, {
+            method: 'DELETE'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // Reload modal
+            await openAvatarImagesModal(avatarId);
+        } else {
+            alert('Erro ao remover imagem: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Erro ao remover imagem:', error);
+        alert('Erro ao remover imagem');
+    }
 }
 
 function renderAvatarSelectors() {
@@ -1005,7 +1223,16 @@ async function renderPreview(data) {
 
 function renderBatchImageSelector(scriptId, batchNumber) {
     const key = `${scriptId}_${batchNumber}`;
-    const selectedId = state.batchImages[key];
+    const selectedPath = state.batchImages[key];
+
+    // Se nao tem avatar selecionado no batch mode, mostra aviso
+    if (!state.batchAvatarId || state.batchAvatarImages.length === 0) {
+        return `
+            <div class="batch-image-selector">
+                <p class="batch-image-hint">Selecione um avatar acima para escolher as imagens</p>
+            </div>
+        `;
+    }
 
     let html = `
         <div class="batch-image-selector">
@@ -1015,11 +1242,13 @@ function renderBatchImageSelector(scriptId, batchNumber) {
             <div class="batch-image-mini-grid">
     `;
 
-    state.avatars.forEach(avatar => {
+    state.batchAvatarImages.forEach((img, idx) => {
+        const isSelected = selectedPath === img.path;
         html += `
-            <div class="batch-image-mini-item ${selectedId === avatar.id ? 'selected' : ''}"
-                 onclick="selectBatchImage('${scriptId}', ${batchNumber}, '${avatar.id}')">
-                <img src="/api/avatars/${avatar.id}/image" alt="${avatar.name}">
+            <div class="batch-image-mini-item ${isSelected ? 'selected' : ''}"
+                 onclick="selectBatchImage('${scriptId}', ${batchNumber}, '${img.path}')">
+                <img src="/api/avatars/${state.batchAvatarId}/images/${img.id}/file" alt="Imagem ${idx + 1}">
+                <span class="mini-image-number">${idx + 1}</span>
             </div>
         `;
     });
@@ -1032,13 +1261,22 @@ function renderBatchImageSelector(scriptId, batchNumber) {
     return html;
 }
 
-function selectBatchImage(scriptId, batchNumber, avatarId) {
+function selectBatchImage(scriptId, batchNumber, imagePath) {
     const key = `${scriptId}_${batchNumber}`;
-    state.batchImages[key] = avatarId;
+    state.batchImages[key] = imagePath;
 
-    // Update UI
-    if (state.previewData) {
-        renderPreview(state.previewData);
+    // Update only the clicked selector, not the entire preview
+    const selector = document.querySelector(`[data-batch-key="${key}"]`);
+    if (selector) {
+        selector.querySelectorAll('.batch-image-mini-item').forEach(item => {
+            const itemPath = item.dataset.path;
+            item.classList.toggle('selected', itemPath === imagePath);
+        });
+    } else {
+        // Fallback: re-render preview
+        if (state.previewData) {
+            renderPreview(state.previewData);
+        }
     }
 }
 
@@ -1070,18 +1308,74 @@ async function generateBatchVideos() {
         } else if (state.multiImages.length > 0) {
             imagePaths = await uploadImages(state.multiImages);
         }
-    } else {
-        // Individual mode - collect images and maintain batch association
-        const uniqueAvatarPaths = new Set();
-
-        // Build the batch images map with image paths
-        for (const [key, avatarId] of Object.entries(state.batchImages)) {
-            const avatar = state.avatars.find(a => a.id === avatarId);
-            if (avatar) {
-                batchImagesMap[key] = avatar.image_path;
-                uniqueAvatarPaths.add(avatar.image_path);
-            }
+    } else if (state.batchImageMode === 'automatic') {
+        // Automatic mode - use Gemini to select images
+        if (!state.batchAvatarId) {
+            showMessage('statusMessages', 'Selecione um avatar para o modo automatico', 'error');
+            return;
         }
+
+        if (state.batchAvatarImages.length === 0) {
+            showMessage('statusMessages', 'O avatar selecionado nao possui imagens', 'error');
+            return;
+        }
+
+        showMessage('statusMessages', 'Consultando Gemini para selecao automatica de imagens...', 'info');
+
+        // Prepare batches for Gemini
+        const batchesForGemini = [];
+        state.previewData.scripts.forEach(script => {
+            script.batches.forEach(batch => {
+                batchesForGemini.push({
+                    script_id: script.id,
+                    batch_number: batch.batch_number,
+                    text: batch.text
+                });
+            });
+        });
+
+        try {
+            const geminiResponse = await fetch('/api/gemini/select-images', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    batches: batchesForGemini,
+                    avatar_id: state.batchAvatarId
+                })
+            });
+
+            const geminiData = await geminiResponse.json();
+
+            if (geminiData.success) {
+                batchImagesMap = geminiData.batch_images;
+                const uniquePaths = new Set(Object.values(batchImagesMap));
+                imagePaths = Array.from(uniquePaths);
+
+                if (geminiData.fallback) {
+                    showMessage('statusMessages', geminiData.message, 'warning');
+                } else {
+                    showMessage('statusMessages', 'Gemini selecionou as imagens automaticamente!', 'success');
+                }
+            } else {
+                showMessage('statusMessages', 'Erro na selecao automatica: ' + geminiData.error, 'error');
+                return;
+            }
+        } catch (error) {
+            console.error('Erro ao consultar Gemini:', error);
+            showMessage('statusMessages', 'Erro ao consultar Gemini para selecao automatica', 'error');
+            return;
+        }
+    } else {
+        // Individual mode - collect images from state.batchImages
+        if (!state.batchAvatarId) {
+            showMessage('statusMessages', 'Selecione um avatar para o modo individual', 'error');
+            return;
+        }
+
+        const uniquePaths = new Set();
+
+        // state.batchImages ja contem os paths diretamente
+        batchImagesMap = { ...state.batchImages };
 
         // Validate that all batches have images selected
         let allBatchesHaveImages = true;
@@ -1090,6 +1384,8 @@ async function generateBatchVideos() {
                 const key = `${script.id}_${batch.batch_number}`;
                 if (!batchImagesMap[key]) {
                     allBatchesHaveImages = false;
+                } else {
+                    uniquePaths.add(batchImagesMap[key]);
                 }
             });
         });
@@ -1099,7 +1395,7 @@ async function generateBatchVideos() {
             return;
         }
 
-        imagePaths = Array.from(uniqueAvatarPaths);
+        imagePaths = Array.from(uniquePaths);
     }
 
     if (imagePaths.length === 0) {
@@ -1571,3 +1867,13 @@ window.loadVideoHistory = loadVideoHistory;
 window.loadProcessingJobs = loadProcessingJobs;
 window.selectProject = selectProject;
 window.deleteProject = deleteProject;
+
+// Avatar images modal functions
+window.openAvatarImagesModal = openAvatarImagesModal;
+window.closeAvatarImagesModal = closeAvatarImagesModal;
+window.addImagesToAvatar = addImagesToAvatar;
+window.deleteAvatarImage = deleteAvatarImage;
+
+// Batch avatar selection
+window.onBatchAvatarChange = onBatchAvatarChange;
+window.loadBatchAvatarSelect = loadBatchAvatarSelect;
