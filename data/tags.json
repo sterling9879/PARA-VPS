@@ -1,0 +1,17 @@
+[
+  {
+    "id": "tag_1",
+    "name": "Marketing",
+    "color": "#667eea"
+  },
+  {
+    "id": "tag_2",
+    "name": "Education",
+    "color": "#43e97b"
+  },
+  {
+    "id": "tag_3",
+    "name": "Entertainment",
+    "color": "#f093fb"
+  }
+]

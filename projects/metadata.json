@@ -1,0 +1,71 @@
+{
+  "projects": {
+    "20251126_152607": {
+      "id": "20251126_152607",
+      "name": "Tutoriais",
+      "description": "Vídeos tutoriais e how-to",
+      "created_at": "2025-11-26T15:26:07.550492",
+      "path": "projects\\outputs\\20251126_152607_Tutoriais",
+      "videos": [],
+      "status": "active"
+    }
+  },
+  "avatars": {},
+  "templates": {
+    "template_1": {
+      "id": "template_1",
+      "name": "Vídeo Educacional",
+      "script": "Olá! Bem-vindo ao nosso canal educacional.\n\nHoje vamos explorar um tema fascinante que vai transformar sua compreensão sobre o assunto.\n\nPrepare-se para uma jornada de aprendizado incrível!",
+      "voice": "Rachel",
+      "provider": "elevenlabs",
+      "model": "eleven_multilingual_v3",
+      "created_at": "2025-11-26T15:26:07.540329",
+      "uses": 0
+    },
+    "template_2": {
+      "id": "template_2",
+      "name": "Apresentação de Produto",
+      "script": "Apresentamos o produto revolucionário que vai mudar sua vida.\n\nCom tecnologia de ponta e design inovador, este produto oferece benefícios únicos.\n\nDescubra como ele pode fazer a diferença para você!",
+      "voice": "Adam",
+      "provider": "elevenlabs",
+      "model": "eleven_multilingual_v3",
+      "created_at": "2025-11-26T15:26:07.542251",
+      "uses": 0
+    },
+    "template_3": {
+      "id": "template_3",
+      "name": "Tutorial Rápido",
+      "script": "Neste tutorial rápido, você vai aprender o passo a passo completo.\n\nSiga as instruções com atenção e em poucos minutos você estará dominando a técnica.\n\nVamos começar!",
+      "voice": "Domi",
+      "provider": "elevenlabs",
+      "model": "eleven_turbo_v3",
+      "created_at": "2025-11-26T15:26:07.544273",
+      "uses": 0
+    },
+    "template_4": {
+      "id": "template_4",
+      "name": "Notícia/Informativo",
+      "script": "Bom dia! Aqui estão as principais notícias do dia.\n\nHoje trazemos informações relevantes sobre os acontecimentos mais importantes.\n\nFique por dentro de tudo que está acontecendo!",
+      "voice": "Bella",
+      "provider": "elevenlabs",
+      "model": "eleven_flash_v3",
+      "created_at": "2025-11-26T15:26:07.544273",
+      "uses": 0
+    },
+    "template_5": {
+      "id": "template_5",
+      "name": "Motivacional",
+      "script": "Você tem um potencial incrível dentro de você!\n\nCada dia é uma nova oportunidade para alcançar seus sonhos e superar seus limites.\n\nAcredite em si mesmo e siga em frente com determinação!",
+      "voice": "Josh",
+      "provider": "elevenlabs",
+      "model": "eleven_multilingual_v3",
+      "created_at": "2025-11-26T15:26:07.545280",
+      "uses": 0
+    }
+  },
+  "stats": {
+    "total_videos": 0,
+    "total_duration": 0,
+    "total_chars": 0
+  }
+}

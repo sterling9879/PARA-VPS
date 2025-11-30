@@ -1,0 +1,30 @@
+[
+  {
+    "id": "job_3509e69f",
+    "type": "single_video",
+    "status": "completed",
+    "progress": 100,
+    "estimated_time": 0,
+    "started_at": "2025-11-28T09:30:09.624272",
+    "completed_at": "2025-11-28T09:32:30.058772",
+    "video_path": "temp\\job_fd99fa99-7014-47b7-b354-56cc184874e2\\final_output.mp4",
+    "project_id": null,
+    "metadata": {
+      "text_preview": "Filha, deixa eu te contar um segredo que ninguém conta: \nvocê não está gorda. Seu corpo está te trai"
+    }
+  },
+  {
+    "id": "job_3c0c0340",
+    "type": "batch_videos",
+    "status": "completed",
+    "progress": 100,
+    "estimated_time": 0,
+    "started_at": "2025-11-28T10:04:32.592297",
+    "completed_at": "2025-11-28T10:11:30.879056",
+    "video_path": "3 vídeos",
+    "project_id": null,
+    "metadata": {
+      "num_scripts": 3
+    }
+  }
+]
