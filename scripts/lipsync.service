@@ -1,0 +1,48 @@
+[Unit]
+Description=LipSync Video Generator - Flask Web Server
+Documentation=https://github.com/sterling9879/PARA-VPS
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lipsync
+Group=lipsync
+WorkingDirectory=/home/lipsync/app
+
+# Ambiente virtual e variaveis
+Environment=PATH=/home/lipsync/app/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+Environment=FLASK_ENV=production
+
+# Comando para iniciar
+ExecStart=/home/lipsync/app/venv/bin/python3 web_server.py
+
+# Reiniciar automaticamente em caso de falha
+Restart=always
+RestartSec=10
+
+# Timeout para parada graceful
+TimeoutStopSec=30
+
+# Limites de recursos
+LimitNOFILE=65535
+LimitNPROC=65535
+
+# Seguranca
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lipsync/app/temp
+ReadWritePaths=/home/lipsync/app/logs
+ReadWritePaths=/home/lipsync/app/data
+ReadWritePaths=/home/lipsync/app/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lipsync
+
+[Install]
+WantedBy=multi-user.target
