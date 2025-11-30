@@ -104,6 +104,148 @@ def auth_status():
     })
 
 # ============================================================================
+# API - LOGS EM TEMPO REAL
+# ============================================================================
+
+import subprocess
+import threading
+import queue
+import time
+
+# Fila global para armazenar logs
+log_queue = queue.Queue(maxsize=1000)
+log_history = []
+
+def read_system_logs():
+    """Lê logs do sistema em background"""
+    global log_history
+    try:
+        # Lê logs do journalctl para o serviço lipsync
+        process = subprocess.Popen(
+            ['journalctl', '-u', 'lipsync', '-f', '-n', '0', '--no-pager'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        for line in iter(process.stdout.readline, ''):
+            if line:
+                log_entry = {
+                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'message': line.strip(),
+                    'type': 'info'
+                }
+
+                # Detecta tipo de log
+                if 'ERROR' in line.upper() or 'error' in line.lower():
+                    log_entry['type'] = 'error'
+                elif 'WARNING' in line.upper() or 'warn' in line.lower():
+                    log_entry['type'] = 'warning'
+                elif 'SUCCESS' in line.upper() or 'sucesso' in line.lower():
+                    log_entry['type'] = 'success'
+
+                # Adiciona ao histórico (máximo 500 linhas)
+                log_history.append(log_entry)
+                if len(log_history) > 500:
+                    log_history = log_history[-500:]
+
+    except Exception as e:
+        logger.error(f"Erro ao ler logs do sistema: {e}")
+
+# Inicia thread de leitura de logs (apenas em produção)
+if not app.debug:
+    log_thread = threading.Thread(target=read_system_logs, daemon=True)
+    log_thread.start()
+
+@app.route('/api/logs', methods=['GET'])
+@login_required
+def get_logs():
+    """Retorna logs do sistema"""
+    try:
+        # Parâmetros
+        limit = int(request.args.get('limit', 100))
+        log_type = request.args.get('type', None)  # info, warning, error, success
+
+        logs = log_history[-limit:]
+
+        # Filtra por tipo se especificado
+        if log_type:
+            logs = [l for l in logs if l['type'] == log_type]
+
+        return jsonify({
+            'success': True,
+            'logs': logs,
+            'total': len(log_history)
+        })
+
+    except Exception as e:
+        logger.error(f"Erro ao obter logs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/logs/system', methods=['GET'])
+@login_required
+def get_system_logs():
+    """Retorna últimas linhas do log do sistema via journalctl"""
+    try:
+        lines = int(request.args.get('lines', 50))
+
+        # Executa journalctl para pegar logs recentes
+        result = subprocess.run(
+            ['journalctl', '-u', 'lipsync', '-n', str(lines), '--no-pager'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        log_lines = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                log_entry = {
+                    'message': line,
+                    'type': 'info'
+                }
+
+                if 'ERROR' in line.upper() or 'error' in line.lower():
+                    log_entry['type'] = 'error'
+                elif 'WARNING' in line.upper() or 'warn' in line.lower():
+                    log_entry['type'] = 'warning'
+                elif 'SUCCESS' in line.upper() or 'sucesso' in line.lower():
+                    log_entry['type'] = 'success'
+
+                log_lines.append(log_entry)
+
+        return jsonify({
+            'success': True,
+            'logs': log_lines
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'Timeout ao ler logs'}), 500
+    except FileNotFoundError:
+        # journalctl não disponível, tenta ler arquivo de log
+        try:
+            log_file = Path('./logs/app.log')
+            if log_file.exists():
+                with open(log_file, 'r') as f:
+                    lines_list = f.readlines()[-int(request.args.get('lines', 50)):]
+                    log_lines = [{'message': l.strip(), 'type': 'info'} for l in lines_list if l.strip()]
+                    return jsonify({'success': True, 'logs': log_lines})
+        except:
+            pass
+        return jsonify({'success': True, 'logs': [{'message': 'Sistema de logs não disponível', 'type': 'warning'}]})
+    except Exception as e:
+        logger.error(f"Erro ao obter logs do sistema: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/logs/clear', methods=['POST'])
+@login_required
+def clear_logs():
+    """Limpa o histórico de logs em memória"""
+    global log_history
+    log_history = []
+    return jsonify({'success': True, 'message': 'Logs limpos'})
+
+# ============================================================================
 # ROTAS ESTÁTICAS
 # ============================================================================
 
