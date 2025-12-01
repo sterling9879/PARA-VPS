@@ -441,16 +441,43 @@ class VideoGenerator:
         self.uploader = FileUploader()
         logger.info("VideoGenerator inicializado")
 
+    @staticmethod
+    def identify_error_type(error: Exception) -> str:
+        """Identifica o tipo de erro do WaveSpeed para logging"""
+        error_str = str(error).lower()
+        if '429' in error_str or 'too_many' in error_str or 'rate' in error_str:
+            return 'RATE_LIMIT'
+        elif '401' in error_str or 'unauthorized' in error_str or 'authentication' in error_str:
+            return 'AUTH_ERROR'
+        elif '500' in error_str or '502' in error_str or '503' in error_str or 'server' in error_str:
+            return 'SERVER_ERROR'
+        elif 'timeout' in error_str or 'timed out' in error_str:
+            return 'TIMEOUT'
+        elif 'connection' in error_str or 'network' in error_str:
+            return 'CONNECTION_ERROR'
+        elif 'failed' in error_str or 'processamento falhou' in error_str:
+            return 'PROCESSING_FAILED'
+        elif 'upload' in error_str:
+            return 'UPLOAD_ERROR'
+        else:
+            return 'UNKNOWN_ERROR'
+
+    @staticmethod
+    def is_retryable_error(error_type: str) -> bool:
+        """Verifica se o erro pode ser retentado"""
+        return error_type in ['RATE_LIMIT', 'SERVER_ERROR', 'TIMEOUT', 'CONNECTION_ERROR', 'UPLOAD_ERROR', 'PROCESSING_FAILED']
+
     def generate_videos_batch(
         self,
         audios: List[Dict],
         image_paths: List[Path],
         output_dir: Path,
         progress_callback=None,
-        max_workers: int = 3
+        max_workers: int = 3,
+        max_batch_retries: int = 3
     ) -> List[Dict]:
         """
-        Gera múltiplos vídeos com lip-sync
+        Gera múltiplos vídeos com lip-sync com retry automático para falhas
 
         Args:
             audios: Lista de dicts com informações dos áudios
@@ -459,6 +486,7 @@ class VideoGenerator:
             output_dir: Diretório para salvar vídeos
             progress_callback: Função de callback para progresso
             max_workers: Número máximo de workers paralelos
+            max_batch_retries: Número máximo de tentativas para batches que falharam
 
         Returns:
             Lista de dicts com informações dos vídeos gerados
@@ -491,62 +519,111 @@ class VideoGenerator:
             image_pool.append(dest)
 
         results = []
-        used_images = []
+        used_images = {}  # Mapeia video_number para imagem usada
 
-        def generate_single_video(audio_data: Dict) -> Dict:
-            """Gera um único vídeo"""
+        def generate_single_video_with_retry(audio_data: Dict, max_retries: int = 3) -> Dict:
+            """Gera um único vídeo com retry para erros temporários"""
             video_number = audio_data['audio_number']
             audio_path = audio_data['audio_path']
 
             if not audio_path or not audio_path.exists():
-                raise Exception(f"Áudio não encontrado: {audio_path}")
+                return {
+                    'video_number': video_number,
+                    'audio_path': audio_path,
+                    'image_path': None,
+                    'video_path': None,
+                    'error': f"Áudio não encontrado: {audio_path}",
+                    'error_type': 'FILE_NOT_FOUND'
+                }
 
-            # Seleciona imagem aleatória (evita repetições consecutivas)
-            image_path = select_random_image(image_pool, used_images)
-            used_images.append(image_path)
+            # Usa imagem previamente selecionada ou seleciona uma nova
+            if video_number in used_images:
+                image_path = used_images[video_number]
+            else:
+                image_path = select_random_image(image_pool, list(used_images.values()))
+                used_images[video_number] = image_path
 
-            if progress_callback:
-                progress_callback(f"Gerando vídeo {video_number}/{len(audios)} (lip-sync)...")
-
-            logger.info(f"Gerando vídeo {video_number}: áudio={audio_path.name}, imagem={image_path.name}")
-
-            # Upload de arquivos (usando serviços compatíveis com WaveSpeed)
-            from wavespeed_uploader import WaveSpeedCompatibleUploader
-
-            audio_url = WaveSpeedCompatibleUploader.upload_file_wavespeed_compatible(audio_path)
-            image_url = WaveSpeedCompatibleUploader.upload_file_wavespeed_compatible(image_path)
-
-            # Gera vídeo
-            video_url = self.client.process_video(
-                audio_url=audio_url,
-                image_url=image_url,
-                resolution=Config.DEFAULT_RESOLUTION
-            )
-
-            # Baixa vídeo gerado
             video_path = video_dir / f'video_{video_number}.mp4'
 
-            logger.info(f"Baixando vídeo {video_number} de {video_url}...")
+            last_error = None
+            last_error_type = None
 
-            response = requests.get(video_url, stream=True, timeout=120)
-            response.raise_for_status()
+            for attempt in range(max_retries):
+                try:
+                    if progress_callback:
+                        if attempt > 0:
+                            progress_callback(f"Retentando vídeo {video_number}/{len(audios)} (tentativa {attempt + 1})...")
+                        else:
+                            progress_callback(f"Gerando vídeo {video_number}/{len(audios)} (lip-sync)...")
 
-            with open(video_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=1024*1024):
-                    f.write(chunk)
+                    logger.info(f"Gerando vídeo {video_number}: áudio={audio_path.name}, imagem={image_path.name} (tentativa {attempt + 1})")
 
-            logger.info(f"Vídeo {video_number} salvo em: {video_path}")
+                    # Upload de arquivos (usando serviços compatíveis com WaveSpeed)
+                    from wavespeed_uploader import WaveSpeedCompatibleUploader
 
+                    audio_url = WaveSpeedCompatibleUploader.upload_file_wavespeed_compatible(audio_path)
+                    image_url = WaveSpeedCompatibleUploader.upload_file_wavespeed_compatible(image_path)
+
+                    # Gera vídeo
+                    video_url = self.client.process_video(
+                        audio_url=audio_url,
+                        image_url=image_url,
+                        resolution=Config.DEFAULT_RESOLUTION
+                    )
+
+                    # Baixa vídeo gerado
+                    logger.info(f"Baixando vídeo {video_number} de {video_url}...")
+
+                    response = requests.get(video_url, stream=True, timeout=120)
+                    response.raise_for_status()
+
+                    with open(video_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=1024*1024):
+                            f.write(chunk)
+
+                    logger.info(f"Vídeo {video_number} salvo em: {video_path}")
+
+                    return {
+                        'video_number': video_number,
+                        'audio_path': audio_path,
+                        'image_path': image_path,
+                        'video_path': video_path
+                    }
+
+                except Exception as e:
+                    last_error = e
+                    last_error_type = VideoGenerator.identify_error_type(e)
+
+                    logger.warning(f"[WAVESPEED] Erro {last_error_type} no vídeo {video_number}: {e}")
+
+                    # Verifica se é um erro que pode ser retentado
+                    if VideoGenerator.is_retryable_error(last_error_type):
+                        # Calcula tempo de espera baseado no tipo de erro
+                        if last_error_type == 'RATE_LIMIT':
+                            wait_time = (attempt + 1) * 30  # 30s, 60s, 90s
+                        elif last_error_type == 'SERVER_ERROR':
+                            wait_time = (attempt + 1) * 20  # 20s, 40s, 60s
+                        else:
+                            wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
+
+                        logger.info(f"Aguardando {wait_time}s antes de retry {attempt + 1}/{max_retries} para vídeo {video_number}")
+                        time.sleep(wait_time)
+                    else:
+                        # Para erros não retentáveis, sai do loop imediatamente
+                        logger.error(f"Erro não retentável para vídeo {video_number}: {last_error_type}")
+                        break
+
+            # Se chegou aqui, todas as tentativas falharam
             return {
                 'video_number': video_number,
                 'audio_path': audio_path,
                 'image_path': image_path,
-                'video_path': video_path
+                'video_path': None,
+                'error': str(last_error),
+                'error_type': last_error_type
             }
 
         # Processa em paralelo (WaveSpeed suporta múltiplas requisições simultâneas)
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         logger.info(f"🚀 Enviando {len(audios)} vídeos para a fila do WaveSpeed em paralelo...")
 
         # Notifica que todos os vídeos foram enviados para a fila
@@ -556,45 +633,80 @@ class VideoGenerator:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submete todos os vídeos para processamento paralelo
             futures = {
-                executor.submit(generate_single_video, audio_data): audio_data
+                executor.submit(generate_single_video_with_retry, audio_data): audio_data
                 for audio_data in audios
             }
 
             # Aguarda conclusão de cada vídeo
             for future in as_completed(futures):
-                audio_data = futures[future]
-                try:
-                    result = future.result()
-                    results.append(result)
+                result = future.result()
+                results.append(result)
 
-                    # Atualiza progresso com contador
-                    completed = len(results)
-                    remaining = len(audios) - completed
+                completed = len(results)
+                remaining = len(audios) - completed
+
+                if result.get('error'):
+                    logger.error(f"❌ Vídeo {result['video_number']} falhou: {result.get('error_type', 'UNKNOWN')}")
+                    if progress_callback:
+                        progress_callback(f"⚠️ Vídeo {completed}/{len(audios)} processado (com erro) | {remaining} em processamento...")
+                else:
                     logger.info(f"✅ Vídeo {result['video_number']} concluído ({completed}/{len(audios)})")
-
                     if progress_callback:
                         progress_callback(f"✅ Vídeo {completed}/{len(audios)} concluído | {remaining} em processamento...")
 
-                except Exception as e:
-                    logger.error(f"❌ Erro ao gerar vídeo {audio_data['audio_number']}: {e}")
-                    results.append({
-                        'video_number': audio_data['audio_number'],
-                        'audio_path': audio_data['audio_path'],
-                        'image_path': None,
-                        'video_path': None,
-                        'error': str(e)
-                    })
+        # Identificar vídeos que falharam e podem ser retentados
+        failed_results = [r for r in results if r.get('error') and VideoGenerator.is_retryable_error(r.get('error_type', ''))]
 
-                    # Atualiza progresso mesmo com erro
-                    completed = len(results)
-                    remaining = len(audios) - completed
-                    if progress_callback:
-                        progress_callback(f"⚠️ Vídeo {completed}/{len(audios)} processado (com erro) | {remaining} em processamento...")
+        # Retry de batches que falharam (nível de batch)
+        batch_retry_count = 0
+        while failed_results and batch_retry_count < max_batch_retries:
+            batch_retry_count += 1
+            logger.info(f"🔄 Retry de batch {batch_retry_count}/{max_batch_retries}: {len(failed_results)} vídeos falhados")
 
-        # Ordena resultados por número
+            if progress_callback:
+                progress_callback(f"Retentando {len(failed_results)} vídeos falhados (tentativa {batch_retry_count}/{max_batch_retries})...")
+
+            # Espera antes do retry de batch
+            wait_time = batch_retry_count * 30  # 30s, 60s, 90s
+            logger.info(f"Aguardando {wait_time}s antes do retry de batch...")
+            time.sleep(wait_time)
+
+            # Cria lista de áudios para retry
+            audios_to_retry = [
+                {'audio_number': r['video_number'], 'audio_path': r['audio_path']}
+                for r in failed_results
+            ]
+
+            # Remove resultados falhados da lista principal
+            results = [r for r in results if r['video_number'] not in [a['audio_number'] for a in audios_to_retry]]
+
+            # Retenta com menos workers para evitar rate limits
+            retry_workers = max(1, max_workers // 2)
+
+            with ThreadPoolExecutor(max_workers=retry_workers) as executor:
+                futures = {
+                    executor.submit(generate_single_video_with_retry, audio_data): audio_data
+                    for audio_data in audios_to_retry
+                }
+
+                for future in as_completed(futures):
+                    result = future.result()
+                    results.append(result)
+                    if result.get('error'):
+                        logger.error(f"Retry vídeo {result['video_number']} falhou: {result.get('error_type', 'UNKNOWN')}")
+                    else:
+                        logger.info(f"✅ Retry vídeo {result['video_number']} sucesso!")
+
+            # Atualiza lista de falhados
+            failed_results = [r for r in results if r.get('error') and VideoGenerator.is_retryable_error(r.get('error_type', ''))]
+
+        # Ordena resultados por número para manter ordem original
         results.sort(key=lambda x: x['video_number'])
 
-        logger.info(f"Geração de vídeos concluída: {len(results)} vídeos")
+        # Log final
+        successful = len([r for r in results if not r.get('error')])
+        failed = len([r for r in results if r.get('error')])
+        logger.info(f"Geração de vídeos concluída: {successful} sucesso, {failed} falharam")
 
         return results
 

@@ -186,21 +186,25 @@ class JobManager:
         self,
         job: Job,
         progress_callback: Optional[Callable[[str, int], None]] = None,
-        max_workers_video: int = 3
+        max_workers_video: int = 3,
+        max_batch_retries: int = 3,
+        allow_partial_success: bool = True
     ) -> Path:
         """
-        Processa um job completo
+        Processa um job completo com retry automático para falhas
 
         Args:
             job: Job a processar
             progress_callback: Função de callback para progresso (message, percent)
             max_workers_video: Número máximo de vídeos processados simultaneamente no WaveSpeed (padrão: 3)
+            max_batch_retries: Número máximo de tentativas para batches que falharam
+            allow_partial_success: Se True, permite concluir o job mesmo com alguns batches falhados
 
         Returns:
             Path do vídeo final gerado
 
         Raises:
-            Exception: Se o processamento falhar
+            Exception: Se o processamento falhar completamente
         """
         try:
             def update_progress(message: str, percent: int):
@@ -222,9 +226,10 @@ class JobManager:
                 progress_callback=lambda msg: update_progress(msg, 10)
             )
 
-            update_progress(f"Texto formatado em {len(job.formatted_texts)} batches", 20)
+            total_batches = len(job.formatted_texts)
+            update_progress(f"Texto formatado em {total_batches} batches", 20)
 
-            # ETAPA 2: Gerar áudios com ElevenLabs
+            # ETAPA 2: Gerar áudios com ElevenLabs (com retry automático)
             update_progress("Gerando áudios com síntese de voz...", 25)
             job.status = JobStatus.GENERATING_AUDIO
             job.save_state()
@@ -236,42 +241,81 @@ class JobManager:
                 voice_id=voice_id,
                 output_dir=job.job_dir,
                 model_id=job.model_id,
-                progress_callback=lambda msg: update_progress(msg, 30)
+                progress_callback=lambda msg: update_progress(msg, 30),
+                max_batch_retries=max_batch_retries
             )
 
-            # Verifica se todos os áudios foram gerados
+            # Verifica resultados dos áudios
+            successful_audios = [a for a in job.audios if not a.get('error')]
             failed_audios = [a for a in job.audios if a.get('error')]
+
             if failed_audios:
-                raise Exception(f"{len(failed_audios)} áudios falharam ao gerar")
+                error_types = {}
+                for fa in failed_audios:
+                    et = fa.get('error_type', 'UNKNOWN')
+                    error_types[et] = error_types.get(et, 0) + 1
 
-            update_progress(f"{len(job.audios)} áudios gerados com sucesso", 50)
+                error_summary = ", ".join([f"{et}: {count}" for et, count in error_types.items()])
+                logger.warning(f"⚠️ {len(failed_audios)} áudios falharam após retries: {error_summary}")
 
-            # ETAPA 3: Gerar vídeos com lip-sync (WaveSpeed)
-            update_progress(f"Gerando {len(job.audios)} vídeos com lip-sync em paralelo...", 55)
+                if not successful_audios:
+                    raise Exception(f"Todos os {len(failed_audios)} áudios falharam ao gerar. Erros: {error_summary}")
+
+                if not allow_partial_success:
+                    raise Exception(f"{len(failed_audios)} áudios falharam ao gerar: {error_summary}")
+
+                update_progress(f"⚠️ {len(successful_audios)}/{total_batches} áudios gerados (alguns falharam)", 50)
+            else:
+                update_progress(f"✅ {len(job.audios)} áudios gerados com sucesso", 50)
+
+            # ETAPA 3: Gerar vídeos com lip-sync (WaveSpeed) - apenas para áudios bem-sucedidos
+            audios_para_video = successful_audios
+            update_progress(f"Gerando {len(audios_para_video)} vídeos com lip-sync em paralelo...", 55)
             job.status = JobStatus.GENERATING_VIDEO
             job.save_state()
 
             job.videos = self.video_generator.generate_videos_batch(
-                audios=job.audios,
+                audios=audios_para_video,
                 image_paths=job.image_paths,
                 output_dir=job.job_dir,
                 progress_callback=lambda msg: update_progress(msg, 60),
-                max_workers=max_workers_video
+                max_workers=max_workers_video,
+                max_batch_retries=max_batch_retries
             )
 
-            # Verifica se todos os vídeos foram gerados
+            # Verifica resultados dos vídeos
+            successful_videos = [v for v in job.videos if not v.get('error')]
             failed_videos = [v for v in job.videos if v.get('error')]
+
             if failed_videos:
-                raise Exception(f"{len(failed_videos)} vídeos falharam ao gerar")
+                error_types = {}
+                for fv in failed_videos:
+                    et = fv.get('error_type', 'UNKNOWN')
+                    error_types[et] = error_types.get(et, 0) + 1
 
-            update_progress(f"{len(job.videos)} vídeos gerados com sucesso", 85)
+                error_summary = ", ".join([f"{et}: {count}" for et, count in error_types.items()])
+                logger.warning(f"⚠️ {len(failed_videos)} vídeos falharam após retries: {error_summary}")
 
-            # ETAPA 4: Concatenar vídeos
+                if not successful_videos:
+                    raise Exception(f"Todos os {len(failed_videos)} vídeos falharam ao gerar. Erros: {error_summary}")
+
+                if not allow_partial_success:
+                    raise Exception(f"{len(failed_videos)} vídeos falharam ao gerar: {error_summary}")
+
+                update_progress(f"⚠️ {len(successful_videos)}/{len(audios_para_video)} vídeos gerados (alguns falharam)", 85)
+            else:
+                update_progress(f"✅ {len(job.videos)} vídeos gerados com sucesso", 85)
+
+            # ETAPA 4: Concatenar vídeos (mantendo ordem original)
             update_progress("Concatenando vídeos finais...", 90)
             job.status = JobStatus.CONCATENATING
             job.save_state()
 
-            video_paths = [v['video_path'] for v in job.videos if v.get('video_path')]
+            # Ordena vídeos pelo número para manter ordem original do texto
+            video_paths = [v['video_path'] for v in sorted(successful_videos, key=lambda x: x['video_number']) if v.get('video_path')]
+
+            if not video_paths:
+                raise Exception("Nenhum vídeo disponível para concatenação")
 
             final_video_path = job.job_dir / 'final_output.mp4'
 
@@ -282,10 +326,27 @@ class JobManager:
                 progress_callback=lambda msg: update_progress(msg, 95)
             )
 
+            # Adiciona informações de batches falhados ao job
+            total_failed = len(failed_audios) + len(failed_videos)
+            total_successful = len(successful_videos)
+
+            if total_failed > 0:
+                job.error = f"Concluído com {total_failed} batches falhados (de {total_batches} total)"
+                logger.warning(f"Job {job.job_id}: {job.error}")
+
             # Marca job como concluído
             job.mark_completed(final_video_path)
 
-            logger.info(f"Job {job.job_id} processado com sucesso!")
+            # Log resumo
+            logger.info(f"🎉 Job {job.job_id} processado!")
+            logger.info(f"   - Batches totais: {total_batches}")
+            logger.info(f"   - Áudios gerados: {len(successful_audios)}")
+            logger.info(f"   - Vídeos gerados: {len(successful_videos)}")
+            if failed_audios:
+                logger.info(f"   - Áudios falhados: {len(failed_audios)}")
+            if failed_videos:
+                logger.info(f"   - Vídeos falhados: {len(failed_videos)}")
+            logger.info(f"   - Vídeo final: {final_video_path}")
 
             return final_video_path
 

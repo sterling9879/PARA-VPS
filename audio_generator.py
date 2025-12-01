@@ -312,10 +312,11 @@ class AudioGenerator:
         output_dir: Path,
         model_id: str = "eleven_multilingual_v2",
         progress_callback=None,
-        max_workers: int = None
+        max_workers: int = None,
+        max_batch_retries: int = 3
     ) -> List[Dict]:
         """
-        Gera múltiplos áudios em paralelo
+        Gera múltiplos áudios em paralelo com retry automático para falhas
 
         Args:
             texts: Lista de dicts com textos formatados
@@ -325,6 +326,7 @@ class AudioGenerator:
             model_id: Modelo ElevenLabs a usar (padrão: eleven_v3)
             progress_callback: Função de callback para progresso
             max_workers: Número máximo de workers paralelos (None = auto)
+            max_batch_retries: Número máximo de tentativas para batches que falharam
 
         Returns:
             Lista de dicts com informações dos áudios gerados
@@ -356,10 +358,28 @@ class AudioGenerator:
 
         logger.info(f"Usando {max_workers} workers paralelos para {self.provider}")
 
-        results = []
+        def identify_error_type(error: Exception) -> str:
+            """Identifica o tipo de erro para logging"""
+            error_str = str(error).lower()
+            if '429' in error_str or 'too_many' in error_str or 'rate' in error_str:
+                return 'RATE_LIMIT'
+            elif '401' in error_str or 'unauthorized' in error_str or 'authentication' in error_str:
+                return 'AUTH_ERROR'
+            elif '500' in error_str or '502' in error_str or '503' in error_str or 'server' in error_str:
+                return 'SERVER_ERROR'
+            elif 'timeout' in error_str or 'timed out' in error_str:
+                return 'TIMEOUT'
+            elif 'connection' in error_str or 'network' in error_str:
+                return 'CONNECTION_ERROR'
+            else:
+                return 'UNKNOWN_ERROR'
+
+        def is_retryable_error(error_type: str) -> bool:
+            """Verifica se o erro pode ser retentado"""
+            return error_type in ['RATE_LIMIT', 'SERVER_ERROR', 'TIMEOUT', 'CONNECTION_ERROR']
 
         def generate_single_audio_with_retry(text_data: Dict, max_retries: int = 3) -> Dict:
-            """Gera um único áudio com retry para erros 429"""
+            """Gera um único áudio com retry para erros temporários"""
             audio_number = text_data['batch_number']
             text = text_data['formatted_text']
             audio_path = audio_dir / f'audio_{audio_number}.mp3'
@@ -368,6 +388,8 @@ class AudioGenerator:
                 progress_callback(f"Gerando áudio {audio_number}/{len(texts)}...")
 
             last_error = None
+            last_error_type = None
+
             for attempt in range(max_retries):
                 try:
                     generated_path = self.generate_audio(
@@ -386,21 +408,37 @@ class AudioGenerator:
 
                 except Exception as e:
                     last_error = e
-                    error_str = str(e).lower()
+                    last_error_type = identify_error_type(e)
 
-                    # Se for erro 429 (rate limit), espera e tenta novamente
-                    if '429' in error_str or 'too_many' in error_str or 'rate' in error_str:
-                        wait_time = (attempt + 1) * 5  # 5s, 10s, 15s
-                        logger.warning(f"Rate limit atingido para áudio {audio_number}. Aguardando {wait_time}s antes de retry {attempt + 1}/{max_retries}")
+                    logger.warning(f"[{self.provider.upper()}] Erro {last_error_type} no áudio {audio_number}: {e}")
+
+                    # Verifica se é um erro que pode ser retentado
+                    if is_retryable_error(last_error_type):
+                        # Calcula tempo de espera baseado no tipo de erro
+                        if last_error_type == 'RATE_LIMIT':
+                            wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
+                        else:
+                            wait_time = (attempt + 1) * 5  # 5s, 10s, 15s
+
+                        logger.info(f"Aguardando {wait_time}s antes de retry {attempt + 1}/{max_retries} para áudio {audio_number}")
                         time.sleep(wait_time)
                     else:
-                        # Para outros erros, não faz retry
+                        # Para erros não retentáveis, sai do loop imediatamente
+                        logger.error(f"Erro não retentável para áudio {audio_number}: {last_error_type}")
                         break
 
             # Se chegou aqui, todas as tentativas falharam
-            raise last_error
+            return {
+                'audio_number': audio_number,
+                'text': text,
+                'audio_path': None,
+                'error': str(last_error),
+                'error_type': last_error_type
+            }
 
         # Processa em paralelo com controle de concorrência
+        results = []
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(generate_single_audio_with_retry, text_data): text_data
@@ -408,25 +446,66 @@ class AudioGenerator:
             }
 
             for future in as_completed(futures):
-                try:
+                result = future.result()
+                results.append(result)
+                if result.get('error'):
+                    logger.error(f"Áudio {result['audio_number']} falhou: {result.get('error_type', 'UNKNOWN')}")
+                else:
+                    logger.info(f"Áudio {result['audio_number']} concluído")
+
+        # Identificar áudios que falharam e podem ser retentados
+        failed_results = [r for r in results if r.get('error') and is_retryable_error(r.get('error_type', ''))]
+
+        # Retry de batches que falharam (nível de batch)
+        batch_retry_count = 0
+        while failed_results and batch_retry_count < max_batch_retries:
+            batch_retry_count += 1
+            logger.info(f"🔄 Retry de batch {batch_retry_count}/{max_batch_retries}: {len(failed_results)} áudios falhados")
+
+            if progress_callback:
+                progress_callback(f"Retentando {len(failed_results)} áudios falhados (tentativa {batch_retry_count}/{max_batch_retries})...")
+
+            # Espera antes do retry de batch
+            wait_time = batch_retry_count * 15  # 15s, 30s, 45s
+            logger.info(f"Aguardando {wait_time}s antes do retry de batch...")
+            time.sleep(wait_time)
+
+            # Cria lista de textos para retry
+            texts_to_retry = [
+                {'batch_number': r['audio_number'], 'formatted_text': r['text']}
+                for r in failed_results
+            ]
+
+            # Remove resultados falhados da lista principal
+            results = [r for r in results if r['audio_number'] not in [t['batch_number'] for t in texts_to_retry]]
+
+            # Retenta com menos workers para evitar rate limits
+            retry_workers = max(1, max_workers // 2)
+
+            with ThreadPoolExecutor(max_workers=retry_workers) as executor:
+                futures = {
+                    executor.submit(generate_single_audio_with_retry, text_data): text_data
+                    for text_data in texts_to_retry
+                }
+
+                for future in as_completed(futures):
                     result = future.result()
                     results.append(result)
-                    logger.info(f"Áudio {result['audio_number']} concluído")
-                except Exception as e:
-                    text_data = futures[future]
-                    logger.error(f"Erro ao gerar áudio {text_data['batch_number']}: {e}")
-                    # Continua mesmo se um áudio falhar
-                    results.append({
-                        'audio_number': text_data['batch_number'],
-                        'text': text_data['formatted_text'],
-                        'audio_path': None,
-                        'error': str(e)
-                    })
+                    if result.get('error'):
+                        logger.error(f"Retry áudio {result['audio_number']} falhou: {result.get('error_type', 'UNKNOWN')}")
+                    else:
+                        logger.info(f"✅ Retry áudio {result['audio_number']} sucesso!")
 
-        # Ordena resultados por número
+            # Atualiza lista de falhados
+            failed_results = [r for r in results if r.get('error') and is_retryable_error(r.get('error_type', ''))]
+
+        # Ordena resultados por número para manter ordem original
         results.sort(key=lambda x: x['audio_number'])
 
-        logger.info(f"Geração de áudios concluída: {len(results)} áudios")
+        # Log final
+        successful = len([r for r in results if not r.get('error')])
+        failed = len([r for r in results if r.get('error')])
+        logger.info(f"Geração de áudios concluída: {successful} sucesso, {failed} falharam")
 
         return results
 
