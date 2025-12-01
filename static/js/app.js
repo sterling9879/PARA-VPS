@@ -1038,6 +1038,8 @@ async function generateSingleVideo() {
         progressFill.style.width = '20%';
         progressText.textContent = 'Enviando para processamento...';
 
+        const skipFormatting = document.getElementById('singleSkipFormatting')?.checked || false;
+
         const response = await fetch('/api/generate/single', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1047,7 +1049,8 @@ async function generateSingleVideo() {
                 voice_name: voice,
                 model_id: model,
                 image_paths: imagePaths,
-                max_workers: workers
+                max_workers: workers,
+                skip_formatting: skipFormatting
             })
         });
 
@@ -1423,6 +1426,8 @@ async function generateBatchVideos() {
     });
 
     try {
+        const skipFormatting = document.getElementById('multiSkipFormatting')?.checked || false;
+
         const response = await fetch('/api/generate/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1434,7 +1439,8 @@ async function generateBatchVideos() {
                 max_workers: workers,
                 voice_selections: state.voiceSelections,
                 batch_image_mode: state.batchImageMode,
-                batch_images: batchImagesMap
+                batch_images: batchImagesMap,
+                skip_formatting: skipFormatting
             })
         });
 

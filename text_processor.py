@@ -99,7 +99,8 @@ TEXTO FORMATADO:"""
         self,
         full_text: str,
         output_dir: Path,
-        progress_callback=None
+        progress_callback=None,
+        skip_formatting: bool = False
     ) -> List[Dict[str, any]]:
         """
         Processa texto completo em batches
@@ -108,6 +109,7 @@ TEXTO FORMATADO:"""
             full_text: Texto completo a processar
             output_dir: Diretório para salvar textos formatados
             progress_callback: Função de callback para progresso (opcional)
+            skip_formatting: Se True, pula a formatação do Gemini e usa o texto original
 
         Returns:
             Lista de dicts com informações dos batches processados
@@ -122,6 +124,9 @@ TEXTO FORMATADO:"""
             ]
         """
         logger.info("Iniciando processamento de texto")
+
+        if skip_formatting:
+            logger.info("⚡ Modo direto: formatação Gemini desabilitada")
 
         # Divide em parágrafos
         paragraphs = split_into_paragraphs(full_text)
@@ -145,10 +150,17 @@ TEXTO FORMATADO:"""
 
             # Atualiza progresso
             if progress_callback:
-                progress_callback(f"Formatando texto batch {batch_number}/{len(batches)}...")
+                if skip_formatting:
+                    progress_callback(f"Preparando texto batch {batch_number}/{len(batches)}...")
+                else:
+                    progress_callback(f"Formatando texto batch {batch_number}/{len(batches)}...")
 
-            # Formata batch
-            formatted_text = self.format_batch(batch_text, batch_number)
+            # Formata batch ou usa texto original
+            if skip_formatting:
+                formatted_text = batch_text
+                logger.info(f"Batch #{batch_number} usando texto original ({len(formatted_text)} caracteres)")
+            else:
+                formatted_text = self.format_batch(batch_text, batch_number)
 
             # Salva em arquivo
             file_path = formatted_dir / f'batch_{batch_number}.txt'

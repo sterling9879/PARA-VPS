@@ -30,7 +30,7 @@ class JobStatus(Enum):
 class Job:
     """Representa um job de geração de vídeo"""
 
-    def __init__(self, job_id: str, input_text: str, voice_name: str, image_paths: List[str], model_id: str = "eleven_multilingual_v3"):
+    def __init__(self, job_id: str, input_text: str, voice_name: str, image_paths: List[str], model_id: str = "eleven_multilingual_v3", skip_formatting: bool = False):
         """
         Inicializa um novo job
 
@@ -40,12 +40,14 @@ class Job:
             voice_name: Nome da voz ElevenLabs
             image_paths: Lista de caminhos das imagens
             model_id: Modelo ElevenLabs a usar
+            skip_formatting: Se True, pula a formatação do Gemini
         """
         self.job_id = job_id
         self.input_text = input_text
         self.voice_name = voice_name
         self.model_id = model_id
         self.image_paths = [Path(p) for p in image_paths]
+        self.skip_formatting = skip_formatting
 
         self.status = JobStatus.CREATED
         self.created_at = datetime.now()
@@ -66,7 +68,7 @@ class Job:
         self.progress_message = "Job criado"
         self.progress_percent = 0
 
-        logger.info(f"Job {job_id} criado")
+        logger.info(f"Job {job_id} criado (skip_formatting={skip_formatting})")
 
     def save_state(self):
         """Salva estado atual do job em JSON"""
@@ -150,7 +152,8 @@ class JobManager:
         input_text: str,
         voice_name: str,
         image_paths: List[str],
-        model_id: str = "eleven_multilingual_v3"
+        model_id: str = "eleven_multilingual_v3",
+        skip_formatting: bool = False
     ) -> tuple[Optional[Job], Optional[str]]:
         """
         Cria um novo job após validações
@@ -160,6 +163,7 @@ class JobManager:
             voice_name: Nome da voz ElevenLabs
             image_paths: Lista de caminhos das imagens
             model_id: Modelo ElevenLabs a usar
+            skip_formatting: Se True, pula a formatação do Gemini (texto já formatado)
 
         Returns:
             (Job, erro) - Job criado ou None com mensagem de erro
@@ -176,9 +180,9 @@ class JobManager:
 
         # Cria job
         job_id = str(uuid.uuid4())
-        job = Job(job_id, input_text, voice_name, image_paths, model_id)
+        job = Job(job_id, input_text, voice_name, image_paths, model_id, skip_formatting)
 
-        logger.info(f"Job criado: {job_id}")
+        logger.info(f"Job criado: {job_id} (skip_formatting={skip_formatting})")
 
         return job, None
 
@@ -215,19 +219,26 @@ class JobManager:
 
             logger.info(f"Iniciando processamento do job {job.job_id}")
 
-            # ETAPA 1: Processar texto com Gemini
-            update_progress("Formatando texto com IA...", 5)
+            # ETAPA 1: Processar texto (com ou sem Gemini)
+            if job.skip_formatting:
+                update_progress("Dividindo texto em batches...", 5)
+            else:
+                update_progress("Formatando texto com IA...", 5)
             job.status = JobStatus.PROCESSING_TEXT
             job.save_state()
 
             job.formatted_texts = self.text_processor.process_text(
                 full_text=job.input_text,
                 output_dir=job.job_dir,
-                progress_callback=lambda msg: update_progress(msg, 10)
+                progress_callback=lambda msg: update_progress(msg, 10),
+                skip_formatting=job.skip_formatting
             )
 
             total_batches = len(job.formatted_texts)
-            update_progress(f"Texto formatado em {total_batches} batches", 20)
+            if job.skip_formatting:
+                update_progress(f"Texto dividido em {total_batches} batches (sem formatação)", 20)
+            else:
+                update_progress(f"Texto formatado em {total_batches} batches", 20)
 
             # ETAPA 2: Gerar áudios com ElevenLabs (com retry automático)
             update_progress("Gerando áudios com síntese de voz...", 25)

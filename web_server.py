@@ -545,33 +545,35 @@ def generate_single_video():
     """Gera um vídeo único"""
     try:
         data = request.json
-        
+
         text = data.get('text', '')
         provider = data.get('provider', 'elevenlabs')
         voice_name = data.get('voice_name', '')
         model_id = data.get('model_id', 'eleven_multilingual_v2')
         image_paths = data.get('image_paths', [])
         max_workers = data.get('max_workers', 3)
-        
+        skip_formatting = data.get('skip_formatting', False)  # Pular formatação Gemini
+
         # Validação
         if not text or not text.strip():
             return jsonify({'success': False, 'error': 'Texto não fornecido'}), 400
-        
+
         if not voice_name:
             return jsonify({'success': False, 'error': 'Voz não selecionada'}), 400
-        
+
         if not image_paths or len(image_paths) == 0:
             return jsonify({'success': False, 'error': 'Nenhuma imagem fornecida'}), 400
-        
+
         # Cria job manager
         job_mgr = JobManager(audio_provider=provider)
-        
+
         # Cria job
         job, error = job_mgr.create_job(
             input_text=text,
             voice_name=voice_name,
             image_paths=image_paths,
-            model_id=model_id
+            model_id=model_id,
+            skip_formatting=skip_formatting
         )
         
         if error:
@@ -628,6 +630,7 @@ def generate_batch_videos():
         voice_selections = data.get('voice_selections', [])
         batch_image_mode = data.get('batch_image_mode', 'fixed')
         batch_images = data.get('batch_images', {})  # {scriptId_batchNumber: image_path}
+        skip_formatting = data.get('skip_formatting', False)  # Pular formatação Gemini
 
         # Validação
         if not scripts or len(scripts) == 0:
@@ -682,7 +685,8 @@ def generate_batch_videos():
                     input_text=script_text,
                     voice_name=voice_name,
                     image_paths=script_image_paths,
-                    model_id=model_id
+                    model_id=model_id,
+                    skip_formatting=skip_formatting
                 )
 
                 if error:
