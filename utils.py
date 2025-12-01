@@ -176,6 +176,41 @@ def select_random_image(image_pool: List[Path], used_images: List[Path] = None) 
     else:
         return random.choice(image_pool)
 
+
+def select_image_for_batch(image_pool: List[Path], video_number: int, mode: str = 'single') -> Path:
+    """
+    Seleciona uma imagem para um vídeo específico em batch de forma determinística
+
+    Args:
+        image_pool: Pool de imagens disponíveis
+        video_number: Número do vídeo (1-indexed)
+        mode: Modo de seleção:
+              - 'single': Usa sempre a primeira imagem (quando usuário selecionou 1 avatar)
+              - 'cycle': Distribui imagens em ciclo (quando há múltiplas imagens)
+              - 'random': Seleção aleatória (modo antigo)
+
+    Returns:
+        Path da imagem selecionada
+    """
+    if not image_pool:
+        raise ValueError("Pool de imagens vazio")
+
+    if len(image_pool) == 1 or mode == 'single':
+        # Se só tem uma imagem ou modo single, usa sempre ela
+        return image_pool[0]
+
+    if mode == 'cycle':
+        # Distribui em ciclo baseado no número do vídeo
+        # video_number é 1-indexed, então subtrai 1 para índice 0-indexed
+        index = (video_number - 1) % len(image_pool)
+        return image_pool[index]
+
+    if mode == 'random':
+        return random.choice(image_pool)
+
+    # Default: usa a primeira imagem
+    return image_pool[0]
+
 def format_time(seconds: float) -> str:
     """
     Formata tempo em segundos para string legível

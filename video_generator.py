@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import Config
-from utils import get_logger, retry_with_backoff, select_random_image
+from utils import get_logger, retry_with_backoff, select_image_for_batch
 
 logger = get_logger(__name__)
 
@@ -519,7 +519,19 @@ class VideoGenerator:
             image_pool.append(dest)
 
         results = []
-        used_images = {}  # Mapeia video_number para imagem usada
+
+        # Determina o modo de seleção de imagem baseado na quantidade
+        # Se usuário selecionou 1 avatar: usa para todos os vídeos
+        # Se selecionou múltiplos: distribui em ciclo
+        if len(image_pool) == 1:
+            image_selection_mode = 'single'
+            logger.info(f"Modo de imagem: SINGLE - usando mesma imagem para todos os vídeos")
+        else:
+            image_selection_mode = 'cycle'
+            logger.info(f"Modo de imagem: CYCLE - distribuindo {len(image_pool)} imagens em ordem")
+
+        # Cache de imagens por video_number (para retry usar a mesma imagem)
+        image_cache = {}
 
         def generate_single_video_with_retry(audio_data: Dict, max_retries: int = 3) -> Dict:
             """Gera um único vídeo com retry para erros temporários"""
@@ -536,12 +548,12 @@ class VideoGenerator:
                     'error_type': 'FILE_NOT_FOUND'
                 }
 
-            # Usa imagem previamente selecionada ou seleciona uma nova
-            if video_number in used_images:
-                image_path = used_images[video_number]
+            # Usa imagem do cache (para retry) ou seleciona deterministicamente
+            if video_number in image_cache:
+                image_path = image_cache[video_number]
             else:
-                image_path = select_random_image(image_pool, list(used_images.values()))
-                used_images[video_number] = image_path
+                image_path = select_image_for_batch(image_pool, video_number, mode=image_selection_mode)
+                image_cache[video_number] = image_path
 
             video_path = video_dir / f'video_{video_number}.mp4'
 
