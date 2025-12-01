@@ -778,27 +778,60 @@ def stream_video(filename):
 
 @app.route('/api/videos/history', methods=['GET'])
 def get_video_history():
-    """Lista vídeos do histórico (pasta temp/outputs)"""
+    """Lista vídeos do histórico (pasta temp e subpastas de jobs)"""
     try:
-        output_folder = Path('./temp/outputs')
-        if not output_folder.exists():
+        temp_folder = Path('./temp')
+        if not temp_folder.exists():
             return jsonify({'success': True, 'videos': []})
-        
+
         videos = []
-        for video_file in output_folder.glob('*.mp4'):
-            stat = video_file.stat()
-            videos.append({
-                'name': video_file.name,
-                'path': str(video_file),
-                'size': stat.st_size,
-                'created_at': stat.st_mtime
-            })
-        
+
+        # Busca em temp/outputs (legado)
+        output_folder = temp_folder / 'outputs'
+        if output_folder.exists():
+            for video_file in output_folder.glob('*.mp4'):
+                try:
+                    stat = video_file.stat()
+                    videos.append({
+                        'name': video_file.name,
+                        'path': str(video_file),
+                        'size': stat.st_size,
+                        'created_at': stat.st_mtime
+                    })
+                except Exception:
+                    pass
+
+        # Busca em pastas de jobs (temp/job_*)
+        for job_dir in temp_folder.glob('job_*'):
+            if job_dir.is_dir():
+                # Procura final_output.mp4 ou qualquer .mp4
+                for video_file in job_dir.glob('*.mp4'):
+                    try:
+                        stat = video_file.stat()
+                        # Usa nome do job + nome do arquivo para identificação
+                        display_name = f"{job_dir.name}_{video_file.name}"
+                        videos.append({
+                            'name': display_name,
+                            'path': str(video_file),
+                            'size': stat.st_size,
+                            'created_at': stat.st_mtime
+                        })
+                    except Exception:
+                        pass
+
+        # Remove duplicatas baseado no path
+        seen_paths = set()
+        unique_videos = []
+        for video in videos:
+            if video['path'] not in seen_paths:
+                seen_paths.add(video['path'])
+                unique_videos.append(video)
+
         # Sort by creation time (newest first)
-        videos.sort(key=lambda x: x['created_at'], reverse=True)
-        
-        return jsonify({'success': True, 'videos': videos})
-        
+        unique_videos.sort(key=lambda x: x['created_at'], reverse=True)
+
+        return jsonify({'success': True, 'videos': unique_videos})
+
     except Exception as e:
         logger.error(f"Erro ao listar histórico: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

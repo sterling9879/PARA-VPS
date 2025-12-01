@@ -1613,46 +1613,78 @@ async function loadProcessingJobs() {
 
 async function loadVideoHistory() {
     const container = document.getElementById('videoHistoryGrid');
-    if (!container) return;
+    if (!container) {
+        console.error('Container videoHistoryGrid not found');
+        return;
+    }
 
     try {
         const response = await fetch('/api/videos/history');
         const data = await response.json();
 
-        if (data.success && data.videos.length > 0) {
+        console.log('Video history loaded:', data);
+
+        if (data.success && data.videos && data.videos.length > 0) {
             container.innerHTML = data.videos.map(video => {
-                const escapedPath = video.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                const encodedPath = encodeURIComponent(video.path);
-                return `
-                <div class="video-history-item">
-                    <video class="video-history-thumb" src="/api/stream/${encodedPath}" preload="metadata"></video>
-                    <div class="video-history-info">
-                        <div class="video-history-name">${video.name}</div>
-                        <div class="video-history-meta">${formatFileSize(video.size)} | ${formatDate(video.created_at * 1000)}</div>
+                try {
+                    const safePath = video.path || '';
+                    const safeName = video.name || 'Video';
+                    const escapedPath = safePath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    const encodedPath = encodeURIComponent(safePath);
+                    const sizeStr = formatFileSize(video.size);
+                    const dateStr = formatDate(video.created_at ? video.created_at * 1000 : null);
+
+                    return `
+                    <div class="video-history-item">
+                        <div class="video-history-thumb-container" onclick="playVideo('${escapedPath}')" style="cursor: pointer;">
+                            <video class="video-history-thumb" src="/api/stream/${encodedPath}" preload="metadata" muted playsinline></video>
+                            <div class="video-thumb-play-icon">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="white">
+                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="video-history-info">
+                            <div class="video-history-name">${safeName}</div>
+                            <div class="video-history-meta">${sizeStr}${dateStr ? ' | ' + dateStr : ''}</div>
+                        </div>
+                        <div class="video-history-actions">
+                            <button class="btn btn-secondary" onclick="playVideo('${escapedPath}')">Assistir</button>
+                            <button class="btn btn-primary" onclick="downloadVideoByPath('${escapedPath}')">Baixar</button>
+                        </div>
                     </div>
-                    <div class="video-history-actions">
-                        <button class="btn btn-secondary" onclick="playVideo('${escapedPath}')">Assistir</button>
-                        <button class="btn btn-primary" onclick="downloadVideoByPath('${escapedPath}')">Baixar</button>
-                    </div>
-                </div>
-            `}).join('');
+                `} catch (itemError) {
+                    console.error('Error rendering video item:', itemError, video);
+                    return '';
+                }
+            }).filter(html => html).join('');
+
+            // Se nenhum item foi renderizado, mostra vazio
+            if (!container.innerHTML.trim()) {
+                showEmptyHistoryState(container);
+            }
         } else {
-            container.innerHTML = `
-                <div class="empty-state-large" style="grid-column: 1/-1;">
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
-                        <line x1="7" y1="2" x2="7" y2="22"></line>
-                        <line x1="17" y1="2" x2="17" y2="22"></line>
-                        <line x1="2" y1="12" x2="22" y2="12"></line>
-                    </svg>
-                    <p>Nenhum vídeo no histórico</p>
-                    <p class="hint">Os vídeos gerados aparecerão aqui</p>
-                </div>
-            `;
+            showEmptyHistoryState(container);
         }
     } catch (error) {
         console.error('Erro ao carregar histórico:', error);
+        showEmptyHistoryState(container);
     }
+}
+
+function showEmptyHistoryState(container) {
+    container.innerHTML = `
+        <div class="empty-state-large" style="grid-column: 1/-1;">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                <line x1="7" y1="2" x2="7" y2="22"></line>
+                <line x1="17" y1="2" x2="17" y2="22"></line>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+            </svg>
+            <p>Nenhum vídeo no histórico</p>
+            <p class="hint">Os vídeos gerados aparecerão aqui</p>
+        </div>
+    `;
 }
 
 function playVideo(videoPath) {
@@ -1830,22 +1862,34 @@ function showMessage(containerId, message, type) {
 
 function formatDate(timestamp) {
     if (!timestamp) return '';
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    try {
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) return '';
+        return date.toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        console.error('Error formatting date:', e);
+        return '';
+    }
 }
 
 function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    if (!bytes || bytes === 0) return '0 Bytes';
+    try {
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        if (isNaN(i) || i < 0) return '0 Bytes';
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    } catch (e) {
+        console.error('Error formatting file size:', e);
+        return '0 Bytes';
+    }
 }
 
 // Make functions globally accessible
