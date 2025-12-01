@@ -1472,7 +1472,7 @@ label {
 /* Completed Videos Grid */
 .completed-videos-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: var(--spacing-lg);
 }
 
@@ -1513,7 +1513,7 @@ label {
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.3);
-    opacity: 0;
+    opacity: 1; /* Sempre visível para mobile */
     transition: opacity var(--transition-base);
 }
 
@@ -1570,7 +1570,7 @@ label {
 
 .video-history-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: var(--spacing-lg);
 }
 
@@ -2318,5 +2318,71 @@ label {
     .batch-image-mini-item {
         width: 40px;
         height: 40px;
+    }
+
+    /* Video grids mobile */
+    .completed-videos-grid,
+    .video-history-grid,
+    .loading-videos-grid {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+    }
+
+    .completed-video-card,
+    .video-history-item {
+        margin-bottom: var(--spacing-sm);
+    }
+
+    .completed-video-actions,
+    .video-history-actions {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+
+    .completed-video-actions .btn,
+    .video-history-actions .btn {
+        width: 100%;
+    }
+
+    .video-history-name {
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    /* Loading card mobile */
+    .loading-video-card {
+        flex-direction: column;
+    }
+
+    .loading-video-preview {
+        width: 100%;
+        min-height: 120px;
+    }
+
+    .loading-video-info {
+        padding: var(--spacing-md);
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .completed-video-play-btn {
+        width: 44px;
+        height: 44px;
+    }
+
+    .completed-video-play-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .completed-video-title,
+    .video-history-name {
+        font-size: 0.8125rem;
+    }
+
+    .completed-video-meta,
+    .video-history-meta {
+        font-size: 0.7rem;
     }
 }
