@@ -30,7 +30,7 @@ class JobStatus(Enum):
 class Job:
     """Representa um job de geração de vídeo"""
 
-    def __init__(self, job_id: str, input_text: str, voice_name: str, image_paths: List[str], model_id: str = "eleven_multilingual_v3", skip_formatting: bool = False):
+    def __init__(self, job_id: str, input_text: str, voice_name: str, image_paths: List[str], model_id: str = "eleven_multilingual_v3", skip_formatting: bool = False, wavespeed_prompt: str = ""):
         """
         Inicializa um novo job
 
@@ -41,6 +41,7 @@ class Job:
             image_paths: Lista de caminhos das imagens
             model_id: Modelo ElevenLabs a usar
             skip_formatting: Se True, pula a formatação do Gemini
+            wavespeed_prompt: Prompt opcional para guiar a geração no WaveSpeed
         """
         self.job_id = job_id
         self.input_text = input_text
@@ -48,6 +49,7 @@ class Job:
         self.model_id = model_id
         self.image_paths = [Path(p) for p in image_paths]
         self.skip_formatting = skip_formatting
+        self.wavespeed_prompt = wavespeed_prompt
 
         self.status = JobStatus.CREATED
         self.created_at = datetime.now()
@@ -68,7 +70,7 @@ class Job:
         self.progress_message = "Job criado"
         self.progress_percent = 0
 
-        logger.info(f"Job {job_id} criado (skip_formatting={skip_formatting})")
+        logger.info(f"Job {job_id} criado (skip_formatting={skip_formatting}, prompt={'yes' if wavespeed_prompt else 'no'})")
 
     def save_state(self):
         """Salva estado atual do job em JSON"""
@@ -153,7 +155,8 @@ class JobManager:
         voice_name: str,
         image_paths: List[str],
         model_id: str = "eleven_multilingual_v3",
-        skip_formatting: bool = False
+        skip_formatting: bool = False,
+        wavespeed_prompt: str = ""
     ) -> tuple[Optional[Job], Optional[str]]:
         """
         Cria um novo job após validações
@@ -164,6 +167,7 @@ class JobManager:
             image_paths: Lista de caminhos das imagens
             model_id: Modelo ElevenLabs a usar
             skip_formatting: Se True, pula a formatação do Gemini (texto já formatado)
+            wavespeed_prompt: Prompt opcional para guiar a geração no WaveSpeed
 
         Returns:
             (Job, erro) - Job criado ou None com mensagem de erro
@@ -180,9 +184,9 @@ class JobManager:
 
         # Cria job
         job_id = str(uuid.uuid4())
-        job = Job(job_id, input_text, voice_name, image_paths, model_id, skip_formatting)
+        job = Job(job_id, input_text, voice_name, image_paths, model_id, skip_formatting, wavespeed_prompt)
 
-        logger.info(f"Job criado: {job_id} (skip_formatting={skip_formatting})")
+        logger.info(f"Job criado: {job_id} (skip_formatting={skip_formatting}, prompt={'yes' if wavespeed_prompt else 'no'})")
 
         return job, None
 
@@ -291,7 +295,8 @@ class JobManager:
                 output_dir=job.job_dir,
                 progress_callback=lambda msg: update_progress(msg, 60),
                 max_workers=max_workers_video,
-                max_batch_retries=max_batch_retries
+                max_batch_retries=max_batch_retries,
+                prompt=job.wavespeed_prompt
             )
 
             # Verifica resultados dos vídeos

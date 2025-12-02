@@ -1039,6 +1039,7 @@ async function generateSingleVideo() {
         progressText.textContent = 'Enviando para processamento...';
 
         const skipFormatting = document.getElementById('singleSkipFormatting')?.checked || false;
+        const wavespeedPrompt = document.getElementById('singleWavespeedPrompt')?.value || '';
 
         const response = await fetch('/api/generate/single', {
             method: 'POST',
@@ -1050,7 +1051,8 @@ async function generateSingleVideo() {
                 model_id: model,
                 image_paths: imagePaths,
                 max_workers: workers,
-                skip_formatting: skipFormatting
+                skip_formatting: skipFormatting,
+                wavespeed_prompt: wavespeedPrompt
             })
         });
 
@@ -1427,6 +1429,7 @@ async function generateBatchVideos() {
 
     try {
         const skipFormatting = document.getElementById('multiSkipFormatting')?.checked || false;
+        const wavespeedPrompt = document.getElementById('multiWavespeedPrompt')?.value || '';
 
         const response = await fetch('/api/generate/batch', {
             method: 'POST',
@@ -1440,7 +1443,8 @@ async function generateBatchVideos() {
                 voice_selections: state.voiceSelections,
                 batch_image_mode: state.batchImageMode,
                 batch_images: batchImagesMap,
-                skip_formatting: skipFormatting
+                skip_formatting: skipFormatting,
+                wavespeed_prompt: wavespeedPrompt
             })
         });
 

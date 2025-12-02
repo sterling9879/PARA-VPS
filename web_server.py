@@ -553,6 +553,7 @@ def generate_single_video():
         image_paths = data.get('image_paths', [])
         max_workers = data.get('max_workers', 3)
         skip_formatting = data.get('skip_formatting', False)  # Pular formatação Gemini
+        wavespeed_prompt = data.get('wavespeed_prompt', '')  # Prompt para WaveSpeed
 
         # Validação
         if not text or not text.strip():
@@ -573,7 +574,8 @@ def generate_single_video():
             voice_name=voice_name,
             image_paths=image_paths,
             model_id=model_id,
-            skip_formatting=skip_formatting
+            skip_formatting=skip_formatting,
+            wavespeed_prompt=wavespeed_prompt
         )
         
         if error:
@@ -631,6 +633,7 @@ def generate_batch_videos():
         batch_image_mode = data.get('batch_image_mode', 'fixed')
         batch_images = data.get('batch_images', {})  # {scriptId_batchNumber: image_path}
         skip_formatting = data.get('skip_formatting', False)  # Pular formatação Gemini
+        wavespeed_prompt = data.get('wavespeed_prompt', '')  # Prompt para WaveSpeed
 
         # Validação
         if not scripts or len(scripts) == 0:
@@ -686,7 +689,8 @@ def generate_batch_videos():
                     voice_name=voice_name,
                     image_paths=script_image_paths,
                     model_id=model_id,
-                    skip_formatting=skip_formatting
+                    skip_formatting=skip_formatting,
+                    wavespeed_prompt=wavespeed_prompt
                 )
 
                 if error:

@@ -35,7 +35,7 @@ class WaveSpeedClient:
         }
 
     @retry_with_backoff(max_retries=3, base_delay=2.0)
-    def submit_task(self, audio_url: str, image_url: str, resolution: str = "480p") -> str:
+    def submit_task(self, audio_url: str, image_url: str, resolution: str = "480p", prompt: str = "") -> str:
         """
         Submete tarefa de geração de vídeo
 
@@ -43,6 +43,7 @@ class WaveSpeedClient:
             audio_url: URL pública do áudio
             image_url: URL pública da imagem
             resolution: Resolução do vídeo (480p, 720p, 1080p)
+            prompt: Prompt opcional para guiar a geração do vídeo
 
         Returns:
             request_id da tarefa
@@ -56,12 +57,14 @@ class WaveSpeedClient:
             payload = {
                 "audio": audio_url,
                 "image": image_url,
-                "prompt": "",
+                "prompt": prompt,
                 "resolution": resolution,
                 "seed": -1
             }
 
             logger.info(f"Submetendo tarefa: {endpoint}")
+            if prompt:
+                logger.info(f"Prompt: {prompt[:100]}...")
 
             response = self.session.post(
                 endpoint,
@@ -199,7 +202,8 @@ class WaveSpeedClient:
         self,
         audio_url: str,
         image_url: str,
-        resolution: str = "480p"
+        resolution: str = "480p",
+        prompt: str = ""
     ) -> str:
         """
         Pipeline completo: submete + aguarda + retorna URL do vídeo
@@ -208,6 +212,7 @@ class WaveSpeedClient:
             audio_url: URL pública do áudio
             image_url: URL pública da imagem
             resolution: Resolução do vídeo
+            prompt: Prompt opcional para guiar a geração
 
         Returns:
             URL do vídeo gerado
@@ -215,7 +220,7 @@ class WaveSpeedClient:
         Raises:
             Exception: Se o processamento falhar
         """
-        request_id = self.submit_task(audio_url, image_url, resolution)
+        request_id = self.submit_task(audio_url, image_url, resolution, prompt)
         result = self.poll_result(request_id)
 
         outputs = result.get("outputs", [])
@@ -474,7 +479,8 @@ class VideoGenerator:
         output_dir: Path,
         progress_callback=None,
         max_workers: int = 3,
-        max_batch_retries: int = 3
+        max_batch_retries: int = 3,
+        prompt: str = ""
     ) -> List[Dict]:
         """
         Gera múltiplos vídeos com lip-sync com retry automático para falhas
@@ -487,6 +493,7 @@ class VideoGenerator:
             progress_callback: Função de callback para progresso
             max_workers: Número máximo de workers paralelos
             max_batch_retries: Número máximo de tentativas para batches que falharam
+            prompt: Prompt opcional para guiar a geração dos vídeos no WaveSpeed
 
         Returns:
             Lista de dicts com informações dos vídeos gerados
@@ -580,7 +587,8 @@ class VideoGenerator:
                     video_url = self.client.process_video(
                         audio_url=audio_url,
                         image_url=image_url,
-                        resolution=Config.DEFAULT_RESOLUTION
+                        resolution=Config.DEFAULT_RESOLUTION,
+                        prompt=prompt
                     )
 
                     # Baixa vídeo gerado
