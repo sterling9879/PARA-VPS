@@ -110,24 +110,80 @@ fi
 log_success "Dependencias instaladas!"
 
 # =============================================================================
-# 4. CRIAR ARQUIVO .ENV (SE NAO EXISTIR)
+# 4. CONFIGURAR API KEYS E CREDENCIAIS
 # =============================================================================
-if [ ! -f "$APP_DIR/.env" ]; then
-    log_info "Criando arquivo .env a partir do exemplo..."
+echo ""
+echo "============================================================================="
+echo -e "${CYAN}       CONFIGURACAO DE API KEYS E CREDENCIAIS${NC}"
+echo "============================================================================="
+echo ""
+echo "Voce precisara das seguintes chaves de API:"
+echo "  - ElevenLabs: https://elevenlabs.io/api"
+echo "  - Google Gemini: https://aistudio.google.com/apikey"
+echo "  - WaveSpeed: https://wavespeed.ai/"
+echo ""
 
-    if [ -f "$APP_DIR/.env.example" ]; then
-        cp $APP_DIR/.env.example $APP_DIR/.env
-        log_warn "IMPORTANTE: Edite o arquivo $APP_DIR/.env com suas API keys!"
+# Funcao para ler input com valor padrao
+read_with_default() {
+    local prompt="$1"
+    local default="$2"
+    local var_name="$3"
+
+    if [ -n "$default" ]; then
+        read -p "$prompt [$default]: " value
+        value="${value:-$default}"
     else
-        log_info "Criando .env padrao..."
-        cat > $APP_DIR/.env << 'EOF'
-# API Keys - CONFIGURE ESTAS CHAVES!
-ELEVENLABS_API_KEY=
-GEMINI_API_KEY=
-WAVESPEED_API_KEY=
+        read -p "$prompt: " value
+    fi
+
+    eval "$var_name='$value'"
+}
+
+# Funcao para ler senha (sem mostrar)
+read_password() {
+    local prompt="$1"
+    local var_name="$2"
+
+    read -s -p "$prompt: " value
+    echo ""
+    eval "$var_name='$value'"
+}
+
+# Coletar API Keys
+echo -e "${YELLOW}=== API Keys ===${NC}"
+read_with_default "ELEVENLABS_API_KEY" "" ELEVENLABS_KEY
+read_with_default "GEMINI_API_KEY" "" GEMINI_KEY
+read_with_default "WAVESPEED_API_KEY" "" WAVESPEED_KEY
+
+echo ""
+echo -e "${YELLOW}=== Credenciais de Acesso ===${NC}"
+read_with_default "Usuario de login" "admin" AUTH_USER
+read_password "Senha de login" AUTH_PASS
+
+if [ -z "$AUTH_PASS" ]; then
+    log_warn "Senha vazia! Usando senha padrao temporaria: mudar123"
+    AUTH_PASS="mudar123"
+fi
+
+# Criar arquivo .env
+log_info "Criando arquivo .env..."
+
+cat > $APP_DIR/.env << EOF
+# =============================================================================
+# Configuracoes do LipSync Video Generator
+# =============================================================================
+
+# API Keys
+ELEVENLABS_API_KEY=$ELEVENLABS_KEY
+GEMINI_API_KEY=$GEMINI_KEY
+WAVESPEED_API_KEY=$WAVESPEED_KEY
 MINIMAX_API_KEY=
 
-# Configuracoes
+# Credenciais de Acesso
+AUTH_EMAIL=$AUTH_USER
+AUTH_PASSWORD=$AUTH_PASS
+
+# Configuracoes de Processamento
 AUDIO_PROVIDER=elevenlabs
 MAX_CONCURRENT_REQUESTS=10
 BATCH_SIZE=3
@@ -137,14 +193,11 @@ DEFAULT_RESOLUTION=480p
 VIDEO_QUALITY=high
 TEMP_FOLDER=./temp
 EOF
-        log_warn "IMPORTANTE: Edite o arquivo $APP_DIR/.env com suas API keys!"
-    fi
-else
-    log_info "Arquivo .env ja existe"
-fi
 
 # Proteger arquivo .env
 chmod 600 $APP_DIR/.env
+
+log_success "Arquivo .env criado!"
 
 # =============================================================================
 # 5. CRIAR DIRETORIOS NECESSARIOS
@@ -215,31 +268,33 @@ log_success "Script de inicializacao criado!"
 # =============================================================================
 echo ""
 echo "============================================================================="
-echo "                    INSTALACAO COMPLETA!"
+echo -e "${GREEN}                    INSTALACAO COMPLETA!${NC}"
 echo "============================================================================="
 echo ""
 echo "Diretorio da aplicacao: $APP_DIR"
 echo ""
+echo -e "Usuario de acesso: ${CYAN}$AUTH_USER${NC}"
+echo -e "Senha de acesso: ${CYAN}(a que voce digitou)${NC}"
+echo ""
 echo -e "${YELLOW}PROXIMOS PASSOS:${NC}"
 echo ""
-echo "1. Configure suas API keys:"
-echo "   nano $APP_DIR/.env"
-echo ""
-echo "2. Teste a aplicacao manualmente:"
-echo "   cd $APP_DIR"
-echo "   source venv/bin/activate"
-echo "   python3 web_server.py"
-echo ""
-echo "3. Configure o servico systemd (como root):"
+echo "1. Configure o servico systemd (como root):"
 echo "   sudo cp $APP_DIR/scripts/lipsync.service /etc/systemd/system/"
 echo "   sudo systemctl daemon-reload"
 echo "   sudo systemctl enable lipsync"
 echo "   sudo systemctl start lipsync"
 echo ""
-echo "4. Configure o Nginx (como root):"
-echo "   sudo cp $APP_DIR/scripts/nginx-lipsync.conf /etc/nginx/sites-available/lipsync"
-echo "   sudo ln -s /etc/nginx/sites-available/lipsync /etc/nginx/sites-enabled/"
-echo "   sudo nginx -t"
-echo "   sudo systemctl reload nginx"
+echo "2. Configure o Nginx e SSL (como root):"
+echo "   sudo bash $APP_DIR/scripts/setup-ssl.sh"
 echo ""
 echo "============================================================================="
+echo ""
+
+# Perguntar se quer editar o .env
+read -p "Deseja revisar/editar o arquivo .env agora? (s/N): " EDIT_ENV
+if [[ "$EDIT_ENV" =~ ^[Ss]$ ]]; then
+    nano $APP_DIR/.env
+fi
+
+echo ""
+log_success "Instalacao finalizada!"

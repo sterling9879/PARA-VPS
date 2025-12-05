@@ -6,6 +6,10 @@
 
 set -e  # Sai em caso de erro
 
+# Evita prompts interativos durante instalacao (kernel, grub, etc)
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 # Cores para output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -35,8 +39,10 @@ fi
 # 1. ATUALIZAR O SISTEMA
 # =============================================================================
 log_info "Atualizando o sistema..."
+
+# Configura para manter configuracoes atuais automaticamente
 apt-get update -y
-apt-get upgrade -y
+apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade -y
 log_success "Sistema atualizado!"
 
 # =============================================================================
