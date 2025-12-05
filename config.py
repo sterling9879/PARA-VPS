@@ -48,12 +48,11 @@ class Config:
     @classmethod
     def validate(cls):
         """Valida se todas as configurações necessárias estão presentes"""
-        errors = []
         warnings = []
 
-        # Pelo menos um provedor de áudio deve estar configurado
+        # Verifica provedores de áudio
         if not cls.ELEVENLABS_API_KEY and not cls.MINIMAX_API_KEY:
-            errors.append("Nenhum provedor de áudio configurado (ELEVENLABS_API_KEY ou MINIMAX_API_KEY)")
+            warnings.append("Nenhum provedor de áudio configurado (ELEVENLABS_API_KEY ou MINIMAX_API_KEY)")
 
         if not cls.ELEVENLABS_API_KEY:
             warnings.append("ELEVENLABS_API_KEY não configurada - ElevenLabs não estará disponível")
@@ -62,18 +61,15 @@ class Config:
             warnings.append("MINIMAX_API_KEY não configurada - MiniMax não estará disponível")
 
         if not cls.GEMINI_API_KEY:
-            errors.append("GEMINI_API_KEY não configurada")
+            warnings.append("GEMINI_API_KEY não configurada - Formatação de texto não estará disponível")
 
         if not cls.WAVESPEED_API_KEY:
-            errors.append("WAVESPEED_API_KEY não configurada")
-
-        if errors:
-            raise ValueError(f"Erros de configuração:\n" + "\n".join(f"- {e}" for e in errors))
+            warnings.append("WAVESPEED_API_KEY não configurada - Geração de vídeo não estará disponível")
 
         # Mostra warnings (não bloqueia execução)
         if warnings:
             import sys
-            print("\n⚠️  Avisos de configuração:", file=sys.stderr)
+            print("\n⚠️  Avisos de configuração (configure pelo painel web):", file=sys.stderr)
             for w in warnings:
                 print(f"   - {w}", file=sys.stderr)
             print()
