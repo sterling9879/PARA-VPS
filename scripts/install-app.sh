@@ -1,6 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # Script de Instalacao da Aplicacao - LipSync Video Generator
+# Instalacao automatica sem prompts - configure pelo frontend depois
 # =============================================================================
 
 set -e  # Sai em caso de erro
@@ -27,7 +28,7 @@ REPO_URL="https://github.com/sterling9879/PARA-VPS.git"
 
 echo ""
 echo "============================================================================="
-echo "       LipSync Video Generator - Instalacao da Aplicacao"
+echo "       LipSync Video Generator - Instalacao Automatica"
 echo "============================================================================="
 echo ""
 
@@ -110,78 +111,26 @@ fi
 log_success "Dependencias instaladas!"
 
 # =============================================================================
-# 4. CONFIGURAR API KEYS E CREDENCIAIS
+# 4. CRIAR ARQUIVO .ENV COM VALORES PADRAO
 # =============================================================================
-echo ""
-echo "============================================================================="
-echo -e "${CYAN}       CONFIGURACAO DE API KEYS E CREDENCIAIS${NC}"
-echo "============================================================================="
-echo ""
-echo "Voce precisara das seguintes chaves de API:"
-echo "  - ElevenLabs: https://elevenlabs.io/api"
-echo "  - Google Gemini: https://aistudio.google.com/apikey"
-echo "  - WaveSpeed: https://wavespeed.ai/"
-echo ""
+if [ ! -f "$APP_DIR/.env" ]; then
+    log_info "Criando arquivo .env com valores padrao..."
 
-# Funcao para ler input com valor padrao
-read_with_default() {
-    local prompt="$1"
-    local default="$2"
-    local var_name="$3"
-
-    if [ -n "$default" ]; then
-        read -p "$prompt [$default]: " value
-        value="${value:-$default}"
-    else
-        read -p "$prompt: " value
-    fi
-
-    eval "$var_name='$value'"
-}
-
-# Funcao para ler senha (sem mostrar)
-read_password() {
-    local prompt="$1"
-    local var_name="$2"
-
-    read -s -p "$prompt: " value
-    echo ""
-    eval "$var_name='$value'"
-}
-
-# Coletar API Keys
-echo -e "${YELLOW}=== API Keys ===${NC}"
-read_with_default "ELEVENLABS_API_KEY" "" ELEVENLABS_KEY
-read_with_default "GEMINI_API_KEY" "" GEMINI_KEY
-read_with_default "WAVESPEED_API_KEY" "" WAVESPEED_KEY
-
-echo ""
-echo -e "${YELLOW}=== Credenciais de Acesso ===${NC}"
-read_with_default "Usuario de login" "admin" AUTH_USER
-read_password "Senha de login" AUTH_PASS
-
-if [ -z "$AUTH_PASS" ]; then
-    log_warn "Senha vazia! Usando senha padrao temporaria: mudar123"
-    AUTH_PASS="mudar123"
-fi
-
-# Criar arquivo .env
-log_info "Criando arquivo .env..."
-
-cat > $APP_DIR/.env << EOF
+    cat > $APP_DIR/.env << 'EOF'
 # =============================================================================
 # Configuracoes do LipSync Video Generator
+# Configure as API keys pelo painel web apos a instalacao
 # =============================================================================
 
-# API Keys
-ELEVENLABS_API_KEY=$ELEVENLABS_KEY
-GEMINI_API_KEY=$GEMINI_KEY
-WAVESPEED_API_KEY=$WAVESPEED_KEY
+# API Keys - Configure pelo frontend em Configuracoes
+ELEVENLABS_API_KEY=
+GEMINI_API_KEY=
+WAVESPEED_API_KEY=
 MINIMAX_API_KEY=
 
-# Credenciais de Acesso
-AUTH_EMAIL=$AUTH_USER
-AUTH_PASSWORD=$AUTH_PASS
+# Credenciais de Acesso Padrao (altere pelo frontend)
+AUTH_EMAIL=admin
+AUTH_PASSWORD=admin123
 
 # Configuracoes de Processamento
 AUDIO_PROVIDER=elevenlabs
@@ -194,10 +143,13 @@ VIDEO_QUALITY=high
 TEMP_FOLDER=./temp
 EOF
 
+    log_success "Arquivo .env criado com valores padrao!"
+else
+    log_info "Arquivo .env ja existe, mantendo configuracoes"
+fi
+
 # Proteger arquivo .env
 chmod 600 $APP_DIR/.env
-
-log_success "Arquivo .env criado!"
 
 # =============================================================================
 # 5. CRIAR DIRETORIOS NECESSARIOS
@@ -273,28 +225,13 @@ echo "==========================================================================
 echo ""
 echo "Diretorio da aplicacao: $APP_DIR"
 echo ""
-echo -e "Usuario de acesso: ${CYAN}$AUTH_USER${NC}"
-echo -e "Senha de acesso: ${CYAN}(a que voce digitou)${NC}"
+echo -e "${YELLOW}CREDENCIAIS PADRAO:${NC}"
+echo -e "  Usuario: ${CYAN}admin${NC}"
+echo -e "  Senha:   ${CYAN}admin123${NC}"
 echo ""
-echo -e "${YELLOW}PROXIMOS PASSOS:${NC}"
+echo -e "${RED}IMPORTANTE: Altere a senha apos o primeiro login!${NC}"
 echo ""
-echo "1. Configure o servico systemd (como root):"
-echo "   sudo cp $APP_DIR/scripts/lipsync.service /etc/systemd/system/"
-echo "   sudo systemctl daemon-reload"
-echo "   sudo systemctl enable lipsync"
-echo "   sudo systemctl start lipsync"
-echo ""
-echo "2. Configure o Nginx e SSL (como root):"
-echo "   sudo bash $APP_DIR/scripts/setup-ssl.sh"
+echo -e "${YELLOW}PROXIMO PASSO:${NC}"
+echo "  Acesse o sistema e configure as API keys em 'Configuracoes'"
 echo ""
 echo "============================================================================="
-echo ""
-
-# Perguntar se quer editar o .env
-read -p "Deseja revisar/editar o arquivo .env agora? (s/N): " EDIT_ENV
-if [[ "$EDIT_ENV" =~ ^[Ss]$ ]]; then
-    nano $APP_DIR/.env
-fi
-
-echo ""
-log_success "Instalacao finalizada!"
