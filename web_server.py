@@ -299,6 +299,9 @@ def get_api_keys_status():
                 'minimax': mask_key(Config.MINIMAX_API_KEY),
                 'gemini': mask_key(Config.GEMINI_API_KEY),
                 'wavespeed': mask_key(Config.WAVESPEED_API_KEY)
+            },
+            'auth': {
+                'user': AUTH_EMAIL
             }
         })
     except Exception as e:
@@ -328,18 +331,25 @@ def save_api_keys():
                         key, value = line.split('=', 1)
                         env_content[key.strip()] = value.strip()
         
-        # Atualiza com novos valores
+        # Atualiza com novos valores - API Keys
         if 'elevenlabs_api_key' in data and data['elevenlabs_api_key']:
             env_content['ELEVENLABS_API_KEY'] = data['elevenlabs_api_key']
-        
+
         if 'minimax_api_key' in data and data['minimax_api_key']:
             env_content['MINIMAX_API_KEY'] = data['minimax_api_key']
-        
+
         if 'gemini_api_key' in data and data['gemini_api_key']:
             env_content['GEMINI_API_KEY'] = data['gemini_api_key']
-        
+
         if 'wavespeed_api_key' in data and data['wavespeed_api_key']:
             env_content['WAVESPEED_API_KEY'] = data['wavespeed_api_key']
+
+        # Atualiza credenciais de acesso
+        if 'auth_user' in data and data['auth_user']:
+            env_content['AUTH_EMAIL'] = data['auth_user']
+
+        if 'auth_password' in data and data['auth_password']:
+            env_content['AUTH_PASSWORD'] = data['auth_password']
         
         # Salva .env
         with open(env_path, 'w', encoding='utf-8') as f:
@@ -355,8 +365,13 @@ def save_api_keys():
         Config.MINIMAX_API_KEY = os.getenv('MINIMAX_API_KEY')
         Config.GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
         Config.WAVESPEED_API_KEY = os.getenv('WAVESPEED_API_KEY')
-        
-        logger.info("API keys atualizadas com sucesso")
+
+        # Atualiza credenciais globais
+        global AUTH_EMAIL, AUTH_PASSWORD
+        AUTH_EMAIL = os.getenv('AUTH_EMAIL', 'admin')
+        AUTH_PASSWORD = os.getenv('AUTH_PASSWORD', 'Senha#1234')
+
+        logger.info("Configurações atualizadas com sucesso")
         
         return jsonify({
             'success': True,

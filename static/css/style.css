@@ -957,6 +957,19 @@ label {
     color: var(--warning);
 }
 
+.modal-divider {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: var(--spacing-xl) 0;
+}
+
+.modal-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+}
+
 /* ============================================================================
    IMAGE SOURCE TOGGLE
    ============================================================================ */

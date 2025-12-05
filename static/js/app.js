@@ -184,6 +184,14 @@ async function loadApiKeyStatus() {
                 setMaskedKeyPlaceholder('apiKeyGemini', data.masked_keys.gemini);
                 setMaskedKeyPlaceholder('apiKeyWavespeed', data.masked_keys.wavespeed);
             }
+
+            // Preencher usuário atual
+            if (data.auth && data.auth.user) {
+                const authUserInput = document.getElementById('authUser');
+                if (authUserInput) {
+                    authUserInput.value = data.auth.user;
+                }
+            }
         }
     } catch (error) {
         console.error('Erro ao verificar API keys:', error);
@@ -214,7 +222,9 @@ async function saveApiKeys() {
         elevenlabs_api_key: document.getElementById('apiKeyElevenlabs').value,
         minimax_api_key: document.getElementById('apiKeyMinimax').value,
         gemini_api_key: document.getElementById('apiKeyGemini').value,
-        wavespeed_api_key: document.getElementById('apiKeyWavespeed').value
+        wavespeed_api_key: document.getElementById('apiKeyWavespeed').value,
+        auth_user: document.getElementById('authUser')?.value || '',
+        auth_password: document.getElementById('authPassword')?.value || ''
     };
 
     try {
@@ -229,6 +239,9 @@ async function saveApiKeys() {
         if (result.success) {
             showMessage('statusMessages', result.message, 'success');
             document.getElementById('settingsModal').classList.remove('active');
+            // Limpar campo de senha após salvar
+            const authPasswordInput = document.getElementById('authPassword');
+            if (authPasswordInput) authPasswordInput.value = '';
             loadApiKeyStatus();
             loadVoices('single');
             loadVoices('multi');
